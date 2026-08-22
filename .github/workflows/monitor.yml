@@ -1,12 +1,11 @@
 name: Monitor JP BH Posta
 
 on:
-  schedule:
-    # GitHub Actions uses UTC.
-    # This example runs at 03:00 UTC every day.
-    - cron: "0 3 * * *"
-
   workflow_dispatch:
+
+  # Re-enable daily monitoring after the diagnostic run works.
+  # schedule:
+  #   - cron: "0 3 * * *"
 
 permissions:
   contents: write
@@ -35,34 +34,77 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
-      - name: Run monitor
+      - name: Run monitor in diagnostic mode
         env:
           CALCULATOR_URL: ${{ secrets.CALCULATOR_URL }}
         run: |
           python monitor.py
 
-      - name: Check whether countries.txt changed
-        id: changes
+      - name: Show generated files
+        if: always()
         run: |
-          if git diff --quiet -- countries.txt; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "===== Repository files ====="
+          find . -maxdepth 2 -type f | sort
+
+          echo
+          echo "===== countries.txt ====="
+          if [ -f countries.txt ]; then
+            cat countries.txt
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "countries.txt does not exist"
           fi
 
-      - name: Commit updated countries.txt
-        if: steps.changes.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo
+          echo "===== Diagnostic files ====="
+          for f in diagnostic.txt diagnostic.html response.html page.html debug.txt; do
+            if [ -f "$f" ]; then
+              echo
+              echo "----- $f -----"
+              head -c 30000 "$f"
+              echo
+            fi
+          done
 
-          git add countries.txt
+      - name: Upload diagnostic files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jp-bh-posta-diagnostic
+          path: |
+            countries.txt
+            diagnostic.txt
+            diagnostic.html
+            response.html
+            page.html
+            debug.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
-          git commit -m "Update destination availability"
-
-          git push
-
-      - name: No changes
-        if: steps.changes.outputs.changed == 'false'
-        run: |
-          echo "countries.txt has not changed."
+      # TEMPORARILY DISABLED during diagnostics.
+      #
+      # We don't want the first test run to automatically commit
+      # potentially incorrect results to the repository.
+      #
+      # - name: Check whether countries.txt changed
+      #   id: changes
+      #   run: |
+      #     if git diff --quiet -- countries.txt; then
+      #       echo "changed=false" >> "$GITHUB_OUTPUT"
+      #     else
+      #       echo "changed=true" >> "$GITHUB_OUTPUT"
+      #     fi
+      #
+      # - name: Commit updated countries.txt
+      #   if: steps.changes.outputs.changed == 'true'
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      #
+      #     git add countries.txt
+      #     git commit -m "Update destination availability"
+      #     git push
+      #
+      # - name: No changes
+      #   if: steps.changes.outputs.changed == 'false'
+      #   run: |
+      #     echo "countries.txt has not changed."
