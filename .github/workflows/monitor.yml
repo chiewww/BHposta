@@ -3,51 +3,96 @@ name: Monitor JP BH Posta
 on:
   workflow_dispatch:
 
-  # Re-enable daily monitoring after the diagnostic run works.
+  # ==========================================================
+  # DAILY MONITORING
+  # ==========================================================
+  # Keep this disabled until the diagnostic run successfully
+  # finds the calculator and produces correct results.
+  #
   # schedule:
   #   - cron: "0 3 * * *"
+  #
+  # 03:00 UTC = 05:00 Bosnia/Croatia/Serbia time during CEST.
+  # ==========================================================
 
 permissions:
   contents: write
 
 jobs:
   monitor:
+    name: JP BH Pošta Calculator Monitor
     runs-on: ubuntu-latest
 
     steps:
+
+      # ========================================================
+      # CHECKOUT
+      # ========================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+
+      # ========================================================
+      # PYTHON
+      # ========================================================
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+
+      # ========================================================
+      # PYTHON DEPENDENCIES
+      # ========================================================
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+
+      # ========================================================
+      # PLAYWRIGHT
+      # ========================================================
+
       - name: Install Playwright Chromium
         run: |
           python -m playwright install --with-deps chromium
 
-      - name: Run monitor in diagnostic mode
+
+      # ========================================================
+      # RUN MONITOR
+      # ========================================================
+
+      - name: Run monitor
         env:
           CALCULATOR_URL: ${{ secrets.CALCULATOR_URL }}
         run: |
           python monitor.py
 
+
+      # ========================================================
+      # SHOW RESULTS IN ACTION LOG
+      # ========================================================
+
       - name: Show generated files
         if: always()
         run: |
-          echo "===== Repository files ====="
+          echo "======================================================"
+          echo "REPOSITORY FILES"
+          echo "======================================================"
+
           find . -maxdepth 2 -type f | sort
 
           echo
-          echo "===== countries.txt ====="
+          echo "======================================================"
+          echo "countries.txt"
+          echo "======================================================"
+
           if [ -f countries.txt ]; then
             cat countries.txt
           else
@@ -55,15 +100,35 @@ jobs:
           fi
 
           echo
-          echo "===== Diagnostic files ====="
-          for f in diagnostic.txt diagnostic.html response.html page.html debug.txt; do
+          echo "======================================================"
+          echo "diagnostic.txt"
+          echo "======================================================"
+
+          if [ -f diagnostic.txt ]; then
+            cat diagnostic.txt
+          else
+            echo "diagnostic.txt does not exist"
+          fi
+
+          echo
+          echo "======================================================"
+          echo "HTML FILE SIZES"
+          echo "======================================================"
+
+          for f in page.html response.html diagnostic.html debug.txt; do
             if [ -f "$f" ]; then
               echo
-              echo "----- $f -----"
-              head -c 30000 "$f"
-              echo
+              echo "$f:"
+              wc -c "$f"
+            else
+              echo "$f: not present"
             fi
           done
+
+
+      # ========================================================
+      # UPLOAD DIAGNOSTIC ARTIFACTS
+      # ========================================================
 
       - name: Upload diagnostic files
         if: always()
@@ -73,6 +138,7 @@ jobs:
           path: |
             countries.txt
             diagnostic.txt
+            diagnostic.png
             diagnostic.html
             response.html
             page.html
@@ -80,10 +146,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # TEMPORARILY DISABLED during diagnostics.
+
+      # ========================================================
+      # DO NOT COMMIT DURING DIAGNOSTIC PHASE
+      # ========================================================
       #
-      # We don't want the first test run to automatically commit
-      # potentially incorrect results to the repository.
+      # We intentionally do NOT commit countries.txt yet.
+      #
+      # First we need to confirm that:
+      #
+      # 1. GitHub Actions reaches the real calculator.
+      # 2. ddlMeDoOdrediste is found.
+      # 3. All countries are extracted.
+      # 4. Izračunaj works.
+      # 5. The unavailable-country error is detected correctly.
+      #
+      # Once that is confirmed, enable the production section below.
+      # ========================================================
+
+
+      # ========================================================
+      # PRODUCTION SECTION -- CURRENTLY DISABLED
+      # ========================================================
       #
       # - name: Check whether countries.txt changed
       #   id: changes
@@ -94,6 +178,7 @@ jobs:
       #       echo "changed=true" >> "$GITHUB_OUTPUT"
       #     fi
       #
+      #
       # - name: Commit updated countries.txt
       #   if: steps.changes.outputs.changed == 'true'
       #   run: |
@@ -101,8 +186,11 @@ jobs:
       #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       #
       #     git add countries.txt
+      #
       #     git commit -m "Update destination availability"
+      #
       #     git push
+      #
       #
       # - name: No changes
       #   if: steps.changes.outputs.changed == 'false'
