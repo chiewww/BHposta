@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import html as html_module
 import re
 import sys
 import time
@@ -21,100 +22,175 @@ ERROR_MESSAGE = (
     "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 )
 
-# The values supplied by the ASP.NET page / your browser request.
-TAB_STATE = '{"activeTabIndex":1}'
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": (
         "text/html,application/xhtml+xml,application/xml;"
         "q=0.9,image/avif,image/webp,*/*;q=0.8"
     ),
     "Accept-Language": "bs-BA,bs;q=0.9,en;q=0.8",
-    "Connection": "keep-alive",
 }
 
 
 def normalise_text(text):
-    """Collapse whitespace so the error message can be found reliably."""
     return re.sub(r"\s+", " ", text).strip()
 
 
+def make_session():
+    session = requests.Session()
+
+    session.headers.update(HEADERS)
+
+    return session
+
+
 def get_hidden_fields(soup):
-    """
-    Get all ASP.NET hidden form fields.
-
-    This includes fields such as:
-        __VIEWSTATE
-        __VIEWSTATEGENERATOR
-        __EVENTVALIDATION
-        etc.
-
-    These values can change, so they must be obtained from the page
-    every time instead of hard-coding them.
-    """
     fields = {}
 
-    for element in soup.select(
-        'input[type="hidden"][name]'
-    ):
+    for element in soup.select('input[type="hidden"][name]'):
         name = element.get("name")
 
-        if not name:
-            continue
-
-        fields[name] = element.get("value", "")
+        if name:
+            fields[name] = element.get("value", "")
 
     return fields
 
 
-def find_destination_select(soup):
+def find_select(html_text):
     """
-    Find the destination-country dropdown.
+    Find ddlMeDoOdrediste in either normal HTML or an ASP.NET AJAX
+    partial-rendering response.
+    """
 
-    The expected ASP.NET control is:
-        ddlMeDoOdrediste
-    """
+    # First try normal BeautifulSoup parsing.
+    soup = BeautifulSoup(html_text, "html.parser")
 
     select = soup.find(
         "select",
         attrs={"name": "ddlMeDoOdrediste"}
     )
 
-    if select is None:
-        select = soup.find(
-            "select",
-            id=re.compile(r"ddlMeDoOdrediste", re.I)
-        )
+    if select is not None:
+        return select
+
+    select = soup.find(
+        "select",
+        id=re.compile(r"ddlMeDoOdrediste", re.I)
+    )
+
+    if select is not None:
+        return select
+
+    # ASP.NET AJAX sometimes HTML-encodes the UpdatePanel content.
+    decoded = html_module.unescape(html_text)
+
+    soup = BeautifulSoup(decoded, "html.parser")
+
+    select = soup.find(
+        "select",
+        attrs={"name": "ddlMeDoOdrediste"}
+    )
+
+    if select is not None:
+        return select
+
+    select = soup.find(
+        "select",
+        id=re.compile(r"ddlMeDoOdrediste", re.I)
+    )
 
     return select
 
 
-def extract_countries(select):
+def extract_updatepanel_html(response_text):
     """
-    Return [(value, visible_name), ...] from the <option> tags.
+    ASP.NET AJAX responses normally look approximately like:
+
+        1|#||4|...|updatePanel|UpdatePanel1|<HTML HERE>|...
+
+    The HTML may itself be HTML-encoded.
+
+    Rather than trying to depend on the exact pipe positions, return
+    the complete response plus decoded versions. BeautifulSoup can
+    then search all of them.
     """
+
+    candidates = []
+
+    candidates.append(response_text)
+
+    decoded = html_module.unescape(response_text)
+
+    if decoded != response_text:
+        candidates.append(decoded)
+
+    # ASP.NET AJAX uses pipe-delimited records.
+    parts = response_text.split("|")
+
+    for part in parts:
+        if (
+            "ddlMeDoOdrediste" in part
+            or "UpdatePanel1" in part
+            or "<select" in part
+        ):
+            candidates.append(part)
+
+            decoded_part = html_module.unescape(part)
+
+            if decoded_part != part:
+                candidates.append(decoded_part)
+
+    # Return the longest candidate first because it normally contains
+    # the most complete HTML.
+    candidates.sort(
+        key=len,
+        reverse=True
+    )
+
+    return candidates
+
+
+def extract_countries(html_text):
+    """
+    Extract every non-empty <option> from ddlMeDoOdrediste.
+    """
+
+    select = find_select(html_text)
+
+    if select is None:
+        return []
 
     countries = []
 
     for option in select.find_all("option"):
         value = option.get("value", "").strip()
-        name = option.get_text(" ", strip=True)
+
+        name = option.get_text(
+            " ",
+            strip=True
+        )
 
         if not name:
             continue
 
-        # Ignore an empty placeholder such as "Odaberite..."
+        # Skip the empty/default selection.
         if not value:
             continue
 
-        countries.append((value, name))
+        countries.append(
+            (
+                value,
+                name
+            )
+        )
 
-    # Remove duplicates while preserving the original order.
+    # Remove duplicates while preserving order.
     result = []
     seen = set()
 
@@ -128,16 +204,22 @@ def extract_countries(select):
     return result
 
 
-def make_session():
-    session = requests.Session()
-    session.headers.update(HEADERS)
+def extract_countries_from_response(response_text):
+    """
+    Search all representations of an ASP.NET AJAX response.
+    """
 
-    # These are useful for ASP.NET applications.
-    session.headers.update({
-        "X-Requested-With": "XMLHttpRequest",
-    })
+    candidates = extract_updatepanel_html(
+        response_text
+    )
 
-    return session
+    for candidate in candidates:
+        countries = extract_countries(candidate)
+
+        if countries:
+            return countries
+
+    return []
 
 
 def get_initial_page(session):
@@ -145,7 +227,7 @@ def get_initial_page(session):
 
     response = session.get(
         CALCULATOR_URL,
-        timeout=60,
+        timeout=60
     )
 
     response.raise_for_status()
@@ -158,76 +240,150 @@ def get_initial_page(session):
     return response
 
 
-def extract_countries_from_page(html):
-    soup = BeautifulSoup(html, "html.parser")
-
-    select = find_destination_select(soup)
-
-    if select is None:
-        return []
-
-    return extract_countries(select)
-
-
-def activate_international_tab(session, html):
+def activate_international_tab(session, initial_html):
     """
-    Some versions of the calculator render the international controls
-    immediately. Others may require an ASP.NET AJAX tab request.
+    Open the Međunarodni promet tab.
 
-    First try the normal page. If the destination dropdown is already
-    present, there is nothing more to do.
+    The supplied values from the user's browser inspection are:
+
+        ScriptManager1 = UpdatePanel1|btnMeDoIzracunaj
+        ASPxTabControl1 = {"activeTabIndex":1}
+
+    For the tab activation itself we send the ASPxTabControl1
+    event to the ASP.NET page and then inspect the UpdatePanel
+    response.
     """
 
-    countries = extract_countries_from_page(html)
-
-    if countries:
-        return html
-
-    print(
-        "Destination dropdown was not present in the initial page. "
-        "Trying an ASP.NET AJAX request for the international tab..."
+    countries = extract_countries(
+        initial_html
     )
 
-    soup = BeautifulSoup(html, "html.parser")
-    fields = get_hidden_fields(soup)
-
-    fields.update({
-        "__EVENTTARGET": "ASPxTabControl1",
-        "__EVENTARGUMENT": "",
-        "__ASYNCPOST": "true",
-        "ASPxTabControl1": TAB_STATE,
-    })
-
-    try:
-        response = session.post(
-            CALCULATOR_URL,
-            data=fields,
-            timeout=60,
-            headers={
-                "Referer": CALCULATOR_URL,
-                "X-MicrosoftAjax": "Delta=true",
-            },
+    if countries:
+        print(
+            "Destination dropdown already exists "
+            "in the initial HTML."
         )
 
-        response.raise_for_status()
+        return initial_html
 
+    soup = BeautifulSoup(
+        initial_html,
+        "html.parser"
+    )
+
+    fields = get_hidden_fields(soup)
+
+    # ASP.NET AJAX tab activation.
+    fields.update({
+        "ScriptManager1": "UpdatePanel1|ASPxTabControl1",
+
+        "ASPxTabControl1": '{"activeTabIndex":1}',
+
+        "__EVENTTARGET": "ASPxTabControl1",
+
+        "__EVENTARGUMENT": "",
+
+        "__ASYNCPOST": "true",
+    })
+
+    print(
+        "Opening Međunarodni promet tab..."
+    )
+
+    response = session.post(
+        CALCULATOR_URL,
+        data=fields,
+        timeout=60,
+        headers={
+            "Referer": CALCULATOR_URL,
+            "X-Requested-With": "XMLHttpRequest",
+            "X-MicrosoftAjax": "Delta=true",
+        },
+    )
+
+    response.raise_for_status()
+
+    print(
+        f"International-tab request: "
+        f"HTTP {response.status_code}, "
+        f"{len(response.text):,} bytes"
+    )
+
+    countries = extract_countries_from_response(
+        response.text
+    )
+
+    if countries:
         print(
-            f"International-tab request: HTTP {response.status_code}, "
-            f"{len(response.text):,} bytes"
+            f"Found {len(countries)} countries "
+            "after opening international tab."
         )
 
         return response.text
 
-    except requests.RequestException as exc:
-        print(f"Warning: tab request failed: {exc}")
-        return html
+    # Some versions use the exact ASPxTabControl state supplied
+    # by the user's browser request but don't require the control
+    # itself as __EVENTTARGET.
+    fields = get_hidden_fields(soup)
+
+    fields.update({
+        "ScriptManager1": "UpdatePanel1|btnMeDoIzracunaj",
+
+        "ASPxTabControl1": '{"activeTabIndex":1}',
+
+        "__EVENTTARGET": "",
+
+        "__EVENTARGUMENT": "",
+
+        "__ASYNCPOST": "true",
+    })
+
+    print(
+        "Trying the calculator's supplied AJAX state..."
+    )
+
+    response = session.post(
+        CALCULATOR_URL,
+        data=fields,
+        timeout=60,
+        headers={
+            "Referer": CALCULATOR_URL,
+            "X-Requested-With": "XMLHttpRequest",
+            "X-MicrosoftAjax": "Delta=true",
+        },
+    )
+
+    response.raise_for_status()
+
+    print(
+        f"Second tab request: "
+        f"HTTP {response.status_code}, "
+        f"{len(response.text):,} bytes"
+    )
+
+    countries = extract_countries_from_response(
+        response.text
+    )
+
+    if countries:
+        print(
+            f"Found {len(countries)} countries."
+        )
+
+        return response.text
+
+    return response.text
 
 
-def submit_country(session, initial_html, country_value):
+def submit_country(
+    session,
+    page_html,
+    country_value
+):
     """
-    Submit the calculator for one destination country.
+    Submit the calculator for one country.
 
-    Important values:
+    Values supplied by the user's browser inspection:
 
         ScriptManager1 = UpdatePanel1|btnMeDoIzracunaj
         ASPxTabControl1 = {"activeTabIndex":1}
@@ -239,34 +395,42 @@ def submit_country(session, initial_html, country_value):
         __ASYNCPOST = true
     """
 
-    soup = BeautifulSoup(initial_html, "html.parser")
+    # The page_html may be either normal HTML or an AJAX response.
+    soup = BeautifulSoup(
+        html_module.unescape(page_html),
+        "html.parser"
+    )
 
     fields = get_hidden_fields(soup)
 
-    # Preserve the form's normal values, then override the fields
-    # necessary for the calculator request.
     fields.update({
-        "ScriptManager1": "UpdatePanel1|btnMeDoIzracunaj",
+        "ScriptManager1":
+            "UpdatePanel1|btnMeDoIzracunaj",
 
-        "ASPxTabControl1": TAB_STATE,
+        "ASPxTabControl1":
+            '{"activeTabIndex":1}',
 
-        "ddlMeDoOdrediste": country_value,
+        "ddlMeDoOdrediste":
+            country_value,
 
-        "chbMeDoAvionski": "on",
+        "chbMeDoAvionski":
+            "on",
 
-        "tbxMeDoAvioTezina": "10",
+        "tbxMeDoAvioTezina":
+            "10",
 
-        "__EVENTTARGET": "",
+        "__EVENTTARGET":
+            "",
 
-        "__EVENTARGUMENT": "",
+        "__EVENTARGUMENT":
+            "",
 
-        "__ASYNCPOST": "true",
+        "__ASYNCPOST":
+            "true",
+
+        "btnMeDoIzracunaj":
+            "Izračunaj",
     })
-
-    # The calculator button is an ASP.NET button. Depending on the
-    # current version of the site, its name may be represented in
-    # different ways. Include the known control name.
-    fields["btnMeDoIzracunaj"] = "Izračunaj"
 
     response = session.post(
         CALCULATOR_URL,
@@ -274,6 +438,7 @@ def submit_country(session, initial_html, country_value):
         timeout=60,
         headers={
             "Referer": CALCULATOR_URL,
+            "X-Requested-With": "XMLHttpRequest",
             "X-MicrosoftAjax": "Delta=true",
         },
     )
@@ -285,199 +450,412 @@ def submit_country(session, initial_html, country_value):
 
 def response_contains_error(response_text):
     """
-    Look for the exact BH Pošta message in the ASP.NET AJAX response.
-
-    We deliberately search the whole response rather than depending
-    on a particular result <div>, because ASP.NET UpdatePanel responses
-    can change their HTML structure.
+    Check both the raw AJAX response and decoded HTML.
     """
 
-    text = normalise_text(
-        BeautifulSoup(response_text, "html.parser").get_text(
-            " ",
-            strip=True
+    candidates = [
+        response_text,
+        html_module.unescape(response_text),
+    ]
+
+    for candidate in candidates:
+
+        if ERROR_MESSAGE in candidate:
+            return True
+
+        soup = BeautifulSoup(
+            candidate,
+            "html.parser"
         )
-    )
 
-    return ERROR_MESSAGE in text
+        text = normalise_text(
+            soup.get_text(
+                " ",
+                strip=True
+            )
+        )
+
+        if ERROR_MESSAGE in text:
+            return True
+
+    return False
 
 
-def create_output(countries, unavailable):
-    """
-    Create the text file that changedetection.io will monitor.
-    """
-
+def create_output(
+    countries,
+    unavailable
+):
     OUTPUT_FILE.parent.mkdir(
         parents=True,
-        exist_ok=True,
+        exist_ok=True
     )
 
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(
+        timezone.utc
+    ).astimezone()
 
     lines = []
 
-    lines.append("BH POŠTA - DOPISNICA")
-    lines.append("====================")
+    lines.append(
+        "BH POŠTA - DOPISNICA"
+    )
+
+    lines.append(
+        "===================="
+    )
+
     lines.append("")
+
     lines.append(
-        "Source: https://www.posta.ba/kalkulator-cijena/"
+        "Source: "
+        "https://www.posta.ba/kalkulator-cijena/"
     )
+
     lines.append(
-        "Calculator: https://bhpwebout.posta.ba/"
-        "KalkulatorCijena_WEB_app/Bos/Default.aspx"
+        "Calculator: "
+        + CALCULATOR_URL
     )
+
     lines.append(
-        f"Last checked: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        "Last checked: "
+        + now.strftime(
+            "%Y-%m-%d %H:%M:%S %Z"
+        )
     )
+
     lines.append("")
+
     lines.append("SETTINGS")
     lines.append("--------")
-    lines.append("Service: Dopisnica")
-    lines.append("Traffic: Međunarodni promet")
-    lines.append("Air transport: Yes")
-    lines.append("Weight: 10 g")
-    lines.append("")
-    lines.append(
-        f"TOTAL COUNTRIES IN DROPDOWN: {len(countries)}"
-    )
-    lines.append("")
-    lines.append("ALL COUNTRIES")
-    lines.append("-------------")
 
-    for number, (_, name) in enumerate(countries, start=1):
-        lines.append(f"{number}. {name}")
+    lines.append(
+        "Service: Dopisnica"
+    )
+
+    lines.append(
+        "Traffic: Međunarodni promet"
+    )
+
+    lines.append(
+        "Air transport: Yes"
+    )
+
+    lines.append(
+        "Weight: 10 g"
+    )
 
     lines.append("")
+
     lines.append(
-        f"COUNTRIES WITH ERROR MESSAGE: {len(unavailable)}"
+        "TOTAL COUNTRIES IN DROPDOWN: "
+        + str(len(countries))
     )
+
     lines.append("")
-    lines.append("COUNTRIES CURRENTLY NOT ACCEPTED")
-    lines.append("--------------------------------")
+
+    lines.append(
+        "ALL COUNTRIES"
+    )
+
+    lines.append(
+        "-------------"
+    )
+
+    for number, (_, name) in enumerate(
+        countries,
+        start=1
+    ):
+        lines.append(
+            f"{number}. {name}"
+        )
+
+    lines.append("")
+
+    lines.append(
+        "COUNTRIES WITH ERROR MESSAGE: "
+        + str(len(unavailable))
+    )
+
+    lines.append("")
+
+    lines.append(
+        "COUNTRIES CURRENTLY NOT ACCEPTED"
+    )
+
+    lines.append(
+        "--------------------------------"
+    )
 
     if unavailable:
-        for number, name in enumerate(unavailable, start=1):
-            lines.append(f"{number}. {name}")
+
+        for number, name in enumerate(
+            unavailable,
+            start=1
+        ):
+            lines.append(
+                f"{number}. {name}"
+            )
+
     else:
-        lines.append("None")
+
+        lines.append(
+            "None"
+        )
 
     lines.append("")
 
     OUTPUT_FILE.write_text(
-        "\n".join(lines) + "\n",
-        encoding="utf-8",
+        "\n".join(lines),
+        encoding="utf-8"
+    )
+
+
+def save_debug_file(
+    response_text,
+    filename
+):
+    """
+    Save an AJAX response if debugging becomes necessary.
+    """
+
+    debug_dir = Path("debug")
+
+    debug_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    path = debug_dir / filename
+
+    path.write_text(
+        response_text,
+        encoding="utf-8"
+    )
+
+    print(
+        f"Debug response saved to {path}"
     )
 
 
 def main():
-    print("=" * 70)
-    print("BH Pošta Dopisnica monitor")
-    print("=" * 70)
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        "BH Pošta Dopisnica monitor"
+    )
+
+    print(
+        "=" * 70
+    )
 
     session = make_session()
 
     try:
-        initial_response = get_initial_page(session)
+
+        initial_response = get_initial_page(
+            session
+        )
 
         page_html = initial_response.text
 
-        page_html = activate_international_tab(
-            session,
-            page_html,
+        # First attempt: perhaps the controls are already present.
+        countries = extract_countries(
+            page_html
         )
 
-        countries = extract_countries_from_page(page_html)
+        if countries:
+
+            print(
+                f"Found {len(countries)} countries "
+                "in initial page."
+            )
+
+        else:
+
+            page_html = activate_international_tab(
+                session,
+                page_html
+            )
+
+            countries = extract_countries_from_response(
+                page_html
+            )
 
         if not countries:
-            print()
-            print("ERROR: Could not find ddlMeDoOdrediste.")
+
             print()
             print(
-                "The BH Pošta calculator HTML structure may have "
-                "changed, or the international tab requires a "
-                "different ASP.NET event."
+                "ERROR: Could not find "
+                "ddlMeDoOdrediste."
             )
+
+            print()
+            print(
+                "Saving the server response for debugging..."
+            )
+
+            save_debug_file(
+                page_html,
+                "international_tab_response.txt"
+            )
+
+            print()
+            print(
+                "The file above can be used to determine "
+                "the exact ASP.NET AJAX response structure."
+            )
+
             sys.exit(1)
 
         print()
         print(
-            f"Found {len(countries)} destination countries "
-            "in ddlMeDoOdrediste."
+            f"TOTAL COUNTRIES FOUND: "
+            f"{len(countries)}"
         )
+
         print()
 
         unavailable = []
 
-        for index, (value, name) in enumerate(
+        for index, (
+            value,
+            name
+        ) in enumerate(
             countries,
-            start=1,
+            start=1
         ):
+
             print(
                 f"[{index}/{len(countries)}] "
                 f"{name} ({value}) ... ",
                 end="",
-                flush=True,
+                flush=True
             )
 
             try:
+
                 response_text = submit_country(
                     session,
                     page_html,
-                    value,
+                    value
                 )
 
-                if response_contains_error(response_text):
-                    unavailable.append(name)
-                    print("NOT ACCEPTED")
+                if response_contains_error(
+                    response_text
+                ):
+
+                    unavailable.append(
+                        name
+                    )
+
+                    print(
+                        "NOT ACCEPTED"
+                    )
+
                 else:
-                    print("OK")
+
+                    print(
+                        "OK"
+                    )
 
             except requests.RequestException as exc:
-                print("REQUEST ERROR")
-                print(f"    {exc}")
+
+                print(
+                    "REQUEST ERROR"
+                )
+
+                print(
+                    f"    {exc}"
+                )
 
             except Exception as exc:
-                print("ERROR")
-                print(f"    {exc}")
 
-            # Be polite to the BH Pošta server.
+                print(
+                    "ERROR"
+                )
+
+                print(
+                    f"    {exc}"
+                )
+
+            # Small delay between countries.
             time.sleep(0.5)
 
         create_output(
             countries,
-            unavailable,
+            unavailable
         )
 
         print()
-        print("=" * 70)
-        print("Finished")
-        print("=" * 70)
+
         print(
-            f"Countries found: {len(countries)}"
+            "=" * 70
         )
+
         print(
-            f"Countries with error: {len(unavailable)}"
+            "Finished"
         )
+
         print(
-            f"Output: {OUTPUT_FILE}"
+            "=" * 70
         )
+
+        print(
+            f"Countries found: "
+            f"{len(countries)}"
+        )
+
+        print(
+            f"Countries with error: "
+            f"{len(unavailable)}"
+        )
+
+        print(
+            f"Output file: "
+            f"{OUTPUT_FILE}"
+        )
+
         print()
 
         if unavailable:
-            print("Currently not accepted:")
+
+            print(
+                "Currently not accepted:"
+            )
+
             for country in unavailable:
-                print(f"  - {country}")
+
+                print(
+                    f"  - {country}"
+                )
 
     except requests.RequestException as exc:
+
         print()
-        print("FATAL HTTP ERROR")
-        print(exc)
+        print(
+            "FATAL HTTP ERROR"
+        )
+
+        print(
+            exc
+        )
+
         sys.exit(1)
 
     except Exception as exc:
+
         print()
-        print("FATAL ERROR")
-        print(exc)
+        print(
+            "FATAL ERROR"
+        )
+
+        print(
+            exc
+        )
+
         sys.exit(1)
 
 
