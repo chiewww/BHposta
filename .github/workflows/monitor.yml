@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
 
   schedule:
-    # Every day at 02:00 UTC.
-    # This is 04:00 in Bosnia during summer time.
     - cron: "0 2 * * *"
 
 permissions:
@@ -30,17 +28,33 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run BH Pošta monitor
+        id: monitor
+        continue-on-error: true
         run: |
           python monitor.py
 
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bhposta-debug
+          path: debug/
+          if-no-files-found: warn
+
       - name: Show output
+        if: always()
         run: |
-          echo "======================================"
-          echo "BH Pošta output"
-          echo "======================================"
-          cat output/bhposta_dopisnica.txt
+          if [ -f output/bhposta_dopisnica.txt ]; then
+            echo "======================================"
+            echo "BH Pošta output"
+            echo "======================================"
+            cat output/bhposta_dopisnica.txt
+          else
+            echo "No output file was created."
+          fi
 
       - name: Commit updated result
+        if: steps.monitor.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -53,3 +67,9 @@ jobs:
             git commit -m "Update BH Pošta Dopisnica data"
             git push
           fi
+
+      - name: Fail workflow if monitor failed
+        if: steps.monitor.outcome == 'failure'
+        run: |
+          echo "BH Pošta monitor failed."
+          exit 1
