@@ -1,262 +1,533 @@
 import asyncio
 import os
-import sys
 from pathlib import Path
 
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
-
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
 
 CALCULATOR_URL = os.environ.get(
     "CALCULATOR_URL",
     "https://www.posta.ba/kalkulator-cijena/",
 )
 
-OUTPUT_FILE = Path("countries.txt")
+DIAGNOSTIC_FILE = Path("diagnostic.txt")
 
-ERROR_MESSAGE = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
-
-DESTINATION_SELECT = "#ddlMeDoOdrediste"
-
-# From your HTML:
-AIR_CHECKBOX = "#chbMeDoAvionski"
-AIR_WEIGHT_INPUT = "#tbxMeDoAvioTezina"
-
-CALCULATE_BUTTON = "#btnMeDoIzracunaj"
-
-# The calculator is an ASP.NET UpdatePanel application, so give
-# postbacks plenty of time.
 TIMEOUT_MS = 30_000
-
-# Small pause between countries. This is deliberately conservative
-# to avoid hammering the website.
-DELAY_BETWEEN_COUNTRIES_SECONDS = 1.0
-
-
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-
-async def wait_for_page_ready(page):
-    await page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_MS)
-
-    # ASP.NET may continue updating the page after DOMContentLoaded.
-    await page.wait_for_timeout(1000)
-
-
-async def get_destinations(page):
-    """
-    Read destinations directly from the live <select>.
-
-    IMPORTANT:
-    The order returned here is the order in the website's dropdown.
-    We intentionally do NOT sort it.
-    """
-
-    select = page.locator(DESTINATION_SELECT)
-
-    await select.wait_for(state="attached", timeout=TIMEOUT_MS)
-
-    destinations = await select.locator("option").evaluate_all(
-        """
-        options => options.map(option => ({
-            value: option.value,
-            name: option.textContent.trim()
-        }))
-        """
-    )
-
-    if not destinations:
-        raise RuntimeError("No destination options were found.")
-
-    return destinations
-
-
-async def select_air_transport(page):
-    """
-    Enable Avionski prijenos and enter 10 grams.
-
-    The checkbox causes an ASP.NET postback, so wait for the
-    resulting field to appear.
-    """
-
-    checkbox = page.locator(AIR_CHECKBOX)
-
-    if not await checkbox.is_checked():
-        await checkbox.check()
-
-        # The checkbox has an onclick __doPostBack() in the supplied HTML.
-        await page.wait_for_timeout(1000)
-
-    weight = page.locator(AIR_WEIGHT_INPUT)
-
-    await weight.wait_for(state="visible", timeout=TIMEOUT_MS)
-
-    await weight.fill("10")
-
-
-async def get_visible_page_text(page):
-    """
-    Get the current rendered page text.
-
-    The unavailable message may be inserted into an UpdatePanel,
-    so we inspect the rendered DOM after the calculation.
-    """
-
-    return await page.locator("body").inner_text()
-
-
-async def calculate_for_destination(page, destination):
-    """
-    Select one destination and click Izračunaj.
-
-    Returns True when the exact unavailable message is present.
-    """
-
-    select = page.locator(DESTINATION_SELECT)
-
-    # Selecting the destination triggers the site's onchange
-    # __doPostBack().
-    await select.select_option(destination["value"])
-
-    # Allow the ASP.NET UpdatePanel/postback to finish.
-    await page.wait_for_timeout(1000)
-
-    # The page may have reconstructed the controls during the postback.
-    await select_air_transport(page)
-
-    # Make sure the value survived the postback.
-    weight = page.locator(AIR_WEIGHT_INPUT)
-    await weight.fill("10")
-
-    calculate = page.locator(CALCULATE_BUTTON)
-    await calculate.wait_for(state="visible", timeout=TIMEOUT_MS)
-
-    await calculate.click()
-
-    # Wait for the server-side calculation/update panel.
-    await page.wait_for_timeout(1500)
-
-    text = await get_visible_page_text(page)
-
-    return ERROR_MESSAGE in text
 
 
 async def main():
-    if "REPLACE-WITH-THE-ACTUAL-HOST" in CALCULATOR_URL:
-        print(
-            "ERROR: Set CALCULATOR_URL to the actual JP BH Pošta calculator URL.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+
+    print("=" * 70)
+    print("JP BH POŠTA CALCULATOR DIAGNOSTIC")
+    print("=" * 70)
+    print()
+    print(f"URL: {CALCULATOR_URL}")
+    print()
 
     async with async_playwright() as p:
+
         browser = await p.chromium.launch(
             headless=True
         )
 
         page = await browser.new_page(
-            viewport={"width": 1280, "height": 1000},
+            viewport={
+                "width": 1440,
+                "height": 1200,
+            },
             locale="hr-HR",
         )
 
         page.set_default_timeout(TIMEOUT_MS)
 
-        print(f"Opening: {CALCULATOR_URL}")
+        print("Opening page...")
 
-        await page.goto(
+        response = await page.goto(
             CALCULATOR_URL,
             wait_until="domcontentloaded",
             timeout=TIMEOUT_MS,
         )
 
-        await wait_for_page_ready(page)
+        print(f"HTTP status: {response.status if response else 'unknown'}")
+        print(f"Final URL: {page.url}")
+        print()
 
-        # Verify that this really is the expected calculator.
-        if not await page.locator(DESTINATION_SELECT).count():
-            raise RuntimeError(
-                f"Could not find {DESTINATION_SELECT}. "
-                "The calculator URL or page structure may have changed."
-            )
+        await page.wait_for_timeout(3000)
 
-        destinations = await get_destinations(page)
+        # -------------------------------------------------------------
+        # Basic page information
+        # -------------------------------------------------------------
 
-        print(f"Found {len(destinations)} destinations.")
+        title = await page.title()
 
-        unavailable = []
+        print(f"Page title: {title}")
+        print()
 
-        for index, destination in enumerate(destinations, start=1):
+        # -------------------------------------------------------------
+        # Check expected selectors
+        # -------------------------------------------------------------
+
+        selectors = [
+            "#ddlMeDoOdrediste",
+            "#chbMeDoAvionski",
+            "#tbxMeDoAvioTezina",
+            "#btnMeDoIzracunaj",
+            "#btnMeObPiIzracunaj",
+            "#btnMeDoIzracunaj",
+            "input[type='submit']",
+            "input[type='button']",
+            "input[type='image']",
+        ]
+
+        diagnostic_lines = []
+
+        diagnostic_lines.append(
+            "JP BH POŠTA CALCULATOR DIAGNOSTIC"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+        diagnostic_lines.append(
+            f"Requested URL: {CALCULATOR_URL}"
+        )
+        diagnostic_lines.append(
+            f"Final URL: {page.url}"
+        )
+        diagnostic_lines.append(
+            f"Page title: {title}"
+        )
+        diagnostic_lines.append("")
+
+        print("=" * 70)
+        print("EXPECTED CONTROLS")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "EXPECTED CONTROLS"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        for selector in selectors:
+
+            count = await page.locator(selector).count()
+
             print(
-                f"[{index}/{len(destinations)}] "
-                f"{destination['name']} ({destination['value']})"
+                f"{selector:35} -> {count} found"
             )
 
-            try:
-                is_unavailable = await calculate_for_destination(
-                    page,
-                    destination,
-                )
-
-                if is_unavailable:
-                    unavailable.append(destination)
-
-                    print("    -> UNAVAILABLE")
-                else:
-                    print("    -> available / no unavailable message")
-
-            except PlaywrightTimeoutError as exc:
-                print(
-                    f"    -> ERROR/TIMEOUT: {exc}",
-                    file=sys.stderr,
-                )
-
-                # Do not silently classify a timeout as unavailable.
-                # Failing the entire run is safer than publishing
-                # incorrect data.
-                raise
-
-            except Exception as exc:
-                print(
-                    f"    -> ERROR: {exc}",
-                    file=sys.stderr,
-                )
-                raise
-
-            await page.wait_for_timeout(
-                int(DELAY_BETWEEN_COUNTRIES_SECONDS * 1000)
+            diagnostic_lines.append(
+                f"{selector:35} -> {count} found"
             )
 
+        print()
+
         # -------------------------------------------------------------
-        # Create the monitored text file.
-        #
-        # Both sections retain the website's original dropdown order.
+        # Destination dropdown
         # -------------------------------------------------------------
 
-        lines = []
+        destination = page.locator(
+            "#ddlMeDoOdrediste"
+        )
 
-        lines.append("ALL DESTINATIONS")
-        lines.append("================")
-        lines.extend(destination["name"] for destination in destinations)
+        destination_count = await destination.count()
 
-        lines.append("")
-        lines.append("UNAVAILABLE")
-        lines.append("===========")
-        lines.extend(destination["name"] for destination in unavailable)
+        diagnostic_lines.append("")
+        diagnostic_lines.append(
+            "DESTINATION DROPDOWN"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
 
-        content = "\n".join(lines) + "\n"
+        print("=" * 70)
+        print("DESTINATION DROPDOWN")
+        print("=" * 70)
 
-        OUTPUT_FILE.write_text(
-            content,
+        if destination_count == 0:
+
+            print(
+                "NOT FOUND: #ddlMeDoOdrediste"
+            )
+
+            diagnostic_lines.append(
+                "NOT FOUND: #ddlMeDoOdrediste"
+            )
+
+        else:
+
+            options = await destination.locator(
+                "option"
+            ).evaluate_all(
+                """
+                options => options.map((option, index) => ({
+                    index: index,
+                    value: option.value,
+                    name: option.textContent.trim(),
+                    selected: option.selected
+                }))
+                """
+            )
+
+            print(
+                f"Number of options: {len(options)}"
+            )
+
+            diagnostic_lines.append(
+                f"Number of options: {len(options)}"
+            )
+
+            diagnostic_lines.append("")
+
+            for option in options:
+
+                line = (
+                    f"{option['index'] + 1}. "
+                    f"value={option['value']!r} "
+                    f"name={option['name']!r} "
+                    f"selected={option['selected']}"
+                )
+
+                print(line)
+
+                diagnostic_lines.append(line)
+
+        print()
+
+        # -------------------------------------------------------------
+        # Avionski prijenos checkbox
+        # -------------------------------------------------------------
+
+        print("=" * 70)
+        print("AVIONSKI PRIJENOS")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "AVIONSKI PRIJENOS"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        air = page.locator(
+            "#chbMeDoAvionski"
+        )
+
+        if await air.count() == 0:
+
+            print(
+                "NOT FOUND: #chbMeDoAvionski"
+            )
+
+            diagnostic_lines.append(
+                "NOT FOUND: #chbMeDoAvionski"
+            )
+
+        else:
+
+            checked = await air.is_checked()
+
+            html = await air.evaluate(
+                "element => element.outerHTML"
+            )
+
+            print(
+                f"Checked: {checked}"
+            )
+            print(
+                f"HTML: {html}"
+            )
+
+            diagnostic_lines.append(
+                f"Checked: {checked}"
+            )
+            diagnostic_lines.append(
+                f"HTML: {html}"
+            )
+
+        print()
+
+        # -------------------------------------------------------------
+        # Weight input
+        # -------------------------------------------------------------
+
+        print("=" * 70)
+        print("AIR WEIGHT INPUT")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "AIR WEIGHT INPUT"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        weight = page.locator(
+            "#tbxMeDoAvioTezina"
+        )
+
+        if await weight.count() == 0:
+
+            print(
+                "NOT FOUND: #tbxMeDoAvioTezina"
+            )
+
+            diagnostic_lines.append(
+                "NOT FOUND: #tbxMeDoAvioTezina"
+            )
+
+        else:
+
+            visible = await weight.is_visible()
+            value = await weight.input_value()
+
+            html = await weight.evaluate(
+                "element => element.outerHTML"
+            )
+
+            print(
+                f"Visible: {visible}"
+            )
+            print(
+                f"Current value: {value!r}"
+            )
+            print(
+                f"HTML: {html}"
+            )
+
+            diagnostic_lines.append(
+                f"Visible: {visible}"
+            )
+            diagnostic_lines.append(
+                f"Current value: {value!r}"
+            )
+            diagnostic_lines.append(
+                f"HTML: {html}"
+            )
+
+        print()
+
+        # -------------------------------------------------------------
+        # Find every button/input that could be Izračunaj
+        # -------------------------------------------------------------
+
+        print("=" * 70)
+        print("CALCULATION CONTROLS")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "CALCULATION CONTROLS"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        controls = await page.locator(
+            "input,button"
+        ).evaluate_all(
+            """
+            elements => elements.map((element, index) => ({
+                index: index,
+                tag: element.tagName,
+                type: element.getAttribute("type"),
+                id: element.id,
+                name: element.getAttribute("name"),
+                value: element.getAttribute("value"),
+                text: element.textContent.trim(),
+                title: element.getAttribute("title"),
+                onclick: element.getAttribute("onclick")
+            }))
+            """
+        )
+
+        for control in controls:
+
+            combined = " ".join(
+                str(control.get(key) or "")
+                for key in [
+                    "id",
+                    "name",
+                    "value",
+                    "text",
+                    "title",
+                    "onclick",
+                ]
+            )
+
+            if (
+                "izracunaj" in combined.lower()
+                or "izračunaj" in combined.lower()
+            ):
+
+                line = (
+                    f"index={control['index']} "
+                    f"tag={control['tag']} "
+                    f"type={control['type']!r} "
+                    f"id={control['id']!r} "
+                    f"name={control['name']!r} "
+                    f"value={control['value']!r} "
+                    f"text={control['text']!r} "
+                    f"title={control['title']!r} "
+                    f"onclick={control['onclick']!r}"
+                )
+
+                print(line)
+
+                diagnostic_lines.append(line)
+
+        print()
+
+        # -------------------------------------------------------------
+        # All UpdatePanels
+        # -------------------------------------------------------------
+
+        print("=" * 70)
+        print("UPDATEPANELS")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "UPDATEPANELS"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        panels = await page.locator(
+            "[id*='UpdatePanel'], [id*='updatePanel']"
+        ).evaluate_all(
+            """
+            elements => elements.map(element => ({
+                id: element.id,
+                tag: element.tagName,
+                className: element.className
+            }))
+            """
+        )
+
+        for panel in panels:
+
+            line = (
+                f"id={panel['id']!r} "
+                f"tag={panel['tag']} "
+                f"class={panel['className']!r}"
+            )
+
+            print(line)
+            diagnostic_lines.append(line)
+
+        print()
+
+        # -------------------------------------------------------------
+        # Relevant page HTML around the destination control
+        # -------------------------------------------------------------
+
+        print("=" * 70)
+        print("DESTINATION CONTROL HTML")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "DESTINATION CONTROL HTML"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        if destination_count:
+
+            destination_html = await destination.evaluate(
+                "element => element.outerHTML"
+            )
+
+            print(destination_html)
+
+            diagnostic_lines.append(
+                destination_html
+            )
+
+        print()
+
+        # -------------------------------------------------------------
+        # Search rendered page for the unavailable message
+        # -------------------------------------------------------------
+
+        ERROR_MESSAGE = (
+            "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
+        )
+
+        body_text = await page.locator(
+            "body"
+        ).inner_text()
+
+        print("=" * 70)
+        print("ERROR MESSAGE CHECK")
+        print("=" * 70)
+
+        diagnostic_lines.append(
+            "ERROR MESSAGE CHECK"
+        )
+        diagnostic_lines.append(
+            "=" * 70
+        )
+
+        if ERROR_MESSAGE in body_text:
+
+            print(
+                "ERROR MESSAGE IS CURRENTLY PRESENT"
+            )
+
+            diagnostic_lines.append(
+                "ERROR MESSAGE IS CURRENTLY PRESENT"
+            )
+
+        else:
+
+            print(
+                "ERROR MESSAGE IS NOT CURRENTLY PRESENT"
+            )
+
+            diagnostic_lines.append(
+                "ERROR MESSAGE IS NOT CURRENTLY PRESENT"
+            )
+
+        print()
+
+        # -------------------------------------------------------------
+        # Save screenshot
+        # -------------------------------------------------------------
+
+        screenshot_path = Path(
+            "diagnostic.png"
+        )
+
+        await page.screenshot(
+            path=str(screenshot_path),
+            full_page=True,
+        )
+
+        print(
+            f"Screenshot saved to: {screenshot_path}"
+        )
+
+        diagnostic_lines.append("")
+        diagnostic_lines.append(
+            f"Screenshot saved to: {screenshot_path}"
+        )
+
+        # -------------------------------------------------------------
+        # Save diagnostic text
+        # -------------------------------------------------------------
+
+        DIAGNOSTIC_FILE.write_text(
+            "\n".join(diagnostic_lines) + "\n",
             encoding="utf-8",
         )
 
+        print(
+            f"Diagnostic report saved to: {DIAGNOSTIC_FILE}"
+        )
+
         print()
-        print(f"Destinations: {len(destinations)}")
-        print(f"Unavailable:  {len(unavailable)}")
-        print(f"Written:      {OUTPUT_FILE}")
 
         await browser.close()
 
