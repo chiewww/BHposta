@@ -1,288 +1,265 @@
-#!/usr/bin/env python3
-
-import html
-import re
+import asyncio
+import os
 import sys
 from pathlib import Path
 
-import requests
-from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 
-CALCULATOR_URL = (
-    "https://bhpwebout.posta.ba/"
-    "KalkulatorCijena_WEB_app/Bos/Default.aspx"
+# ---------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------
+
+CALCULATOR_URL = os.environ.get(
+    "CALCULATOR_URL",
+    "https://REPLACE-WITH-THE-ACTUAL-HOST/KalkulatorCijena_WEB_app/Default.aspx",
 )
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;"
-        "q=0.9,*/*;q=0.8"
-    ),
-    "Accept-Language": "bs-BA,bs;q=0.9,en;q=0.8",
-}
+OUTPUT_FILE = Path("countries.txt")
+
+ERROR_MESSAGE = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
+
+DESTINATION_SELECT = "#ddlMeDoOdrediste"
+
+# From your HTML:
+AIR_CHECKBOX = "#chbMeDoAvionski"
+AIR_WEIGHT_INPUT = "#tbxMeDoAvioTezina"
+
+CALCULATE_BUTTON = "#btnMeDoIzracunaj"
+
+# The calculator is an ASP.NET UpdatePanel application, so give
+# postbacks plenty of time.
+TIMEOUT_MS = 30_000
+
+# Small pause between countries. This is deliberately conservative
+# to avoid hammering the website.
+DELAY_BETWEEN_COUNTRIES_SECONDS = 1.0
 
 
-def hidden_fields(soup):
-    result = {}
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
 
-    for item in soup.select('input[type="hidden"][name]'):
-        result[item["name"]] = item.get("value", "")
+async def wait_for_page_ready(page):
+    await page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_MS)
 
-    return result
+    # ASP.NET may continue updating the page after DOMContentLoaded.
+    await page.wait_for_timeout(1000)
 
 
-def show_relevant_response(response_text):
+async def get_destinations(page):
     """
-    Print only the portions of the ASP.NET AJAX response that
-    contain useful control names / HTML.
+    Read destinations directly from the live <select>.
+
+    IMPORTANT:
+    The order returned here is the order in the website's dropdown.
+    We intentionally do NOT sort it.
     """
 
-    print()
-    print("=" * 70)
-    print("DIAGNOSTIC INFORMATION")
-    print("=" * 70)
+    select = page.locator(DESTINATION_SELECT)
 
-    print()
-    print("Response length:")
-    print(len(response_text))
+    await select.wait_for(state="attached", timeout=TIMEOUT_MS)
 
-    print()
-    print("First 2000 characters:")
-    print("-" * 70)
-    print(response_text[:2000])
+    destinations = await select.locator("option").evaluate_all(
+        """
+        options => options.map(option => ({
+            value: option.value,
+            name: option.textContent.trim()
+        }))
+        """
+    )
 
-    print()
-    print("=" * 70)
-    print("CONTROL NAMES FOUND IN RESPONSE")
-    print("=" * 70)
+    if not destinations:
+        raise RuntimeError("No destination options were found.")
 
-    names = sorted(
-        set(
-            re.findall(
-                r'(?:id|name)=["\']([^"\']+)["\']',
-                html.unescape(response_text),
-                flags=re.I,
-            )
+    return destinations
+
+
+async def select_air_transport(page):
+    """
+    Enable Avionski prijenos and enter 10 grams.
+
+    The checkbox causes an ASP.NET postback, so wait for the
+    resulting field to appear.
+    """
+
+    checkbox = page.locator(AIR_CHECKBOX)
+
+    if not await checkbox.is_checked():
+        await checkbox.check()
+
+        # The checkbox has an onclick __doPostBack() in the supplied HTML.
+        await page.wait_for_timeout(1000)
+
+    weight = page.locator(AIR_WEIGHT_INPUT)
+
+    await weight.wait_for(state="visible", timeout=TIMEOUT_MS)
+
+    await weight.fill("10")
+
+
+async def get_visible_page_text(page):
+    """
+    Get the current rendered page text.
+
+    The unavailable message may be inserted into an UpdatePanel,
+    so we inspect the rendered DOM after the calculation.
+    """
+
+    return await page.locator("body").inner_text()
+
+
+async def calculate_for_destination(page, destination):
+    """
+    Select one destination and click Izračunaj.
+
+    Returns True when the exact unavailable message is present.
+    """
+
+    select = page.locator(DESTINATION_SELECT)
+
+    # Selecting the destination triggers the site's onchange
+    # __doPostBack().
+    await select.select_option(destination["value"])
+
+    # Allow the ASP.NET UpdatePanel/postback to finish.
+    await page.wait_for_timeout(1000)
+
+    # The page may have reconstructed the controls during the postback.
+    await select_air_transport(page)
+
+    # Make sure the value survived the postback.
+    weight = page.locator(AIR_WEIGHT_INPUT)
+    await weight.fill("10")
+
+    calculate = page.locator(CALCULATE_BUTTON)
+    await calculate.wait_for(state="visible", timeout=TIMEOUT_MS)
+
+    await calculate.click()
+
+    # Wait for the server-side calculation/update panel.
+    await page.wait_for_timeout(1500)
+
+    text = await get_visible_page_text(page)
+
+    return ERROR_MESSAGE in text
+
+
+async def main():
+    if "REPLACE-WITH-THE-ACTUAL-HOST" in CALCULATOR_URL:
+        print(
+            "ERROR: Set CALCULATOR_URL to the actual JP BH Pošta calculator URL.",
+            file=sys.stderr,
         )
-    )
+        sys.exit(1)
 
-    for name in names:
-        lower = name.lower()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True
+        )
 
-        if (
-            "ddl" in lower
-            or "dopis" in lower
-            or "me" in lower
-            or "odred" in lower
-            or "avion" in lower
-            or "izrac" in lower
-            or "tab" in lower
-            or "update" in lower
-        ):
-            print(name)
+        page = await browser.new_page(
+            viewport={"width": 1280, "height": 1000},
+            locale="hr-HR",
+        )
 
-    print()
-    print("=" * 70)
-    print("OCCURRENCES OF IMPORTANT WORDS")
-    print("=" * 70)
+        page.set_default_timeout(TIMEOUT_MS)
 
-    decoded = html.unescape(response_text)
+        print(f"Opening: {CALCULATOR_URL}")
 
-    words = [
-        "ddlMeDoOdrediste",
-        "Odrediste",
-        "odredišna",
-        "odredis",
-        "Dopisnica",
-        "Dopis",
-        "Avionski",
-        "avionski",
-        "Izračunaj",
-        "Izracunaj",
-        "UpdatePanel1",
-        "ASPxTabControl1",
-        "Međunarodni",
-        "Medunarodni",
-    ]
+        await page.goto(
+            CALCULATOR_URL,
+            wait_until="domcontentloaded",
+            timeout=TIMEOUT_MS,
+        )
 
-    for word in words:
+        await wait_for_page_ready(page)
 
-        positions = []
-
-        start = 0
-
-        while True:
-            position = decoded.lower().find(
-                word.lower(),
-                start
+        # Verify that this really is the expected calculator.
+        if not await page.locator(DESTINATION_SELECT).count():
+            raise RuntimeError(
+                f"Could not find {DESTINATION_SELECT}. "
+                "The calculator URL or page structure may have changed."
             )
 
-            if position == -1:
-                break
+        destinations = await get_destinations(page)
 
-            positions.append(position)
+        print(f"Found {len(destinations)} destinations.")
 
-            start = position + len(word)
+        unavailable = []
 
-        if positions:
-
-            print()
+        for index, destination in enumerate(destinations, start=1):
             print(
-                f'FOUND "{word}" '
-                f'{len(positions)} time(s)'
+                f"[{index}/{len(destinations)}] "
+                f"{destination['name']} ({destination['value']})"
             )
 
-            for position in positions[:10]:
-
-                begin = max(
-                    0,
-                    position - 500
+            try:
+                is_unavailable = await calculate_for_destination(
+                    page,
+                    destination,
                 )
 
-                end = min(
-                    len(decoded),
-                    position + 1500
-                )
+                if is_unavailable:
+                    unavailable.append(destination)
 
-                print("-" * 70)
+                    print("    -> UNAVAILABLE")
+                else:
+                    print("    -> available / no unavailable message")
+
+            except PlaywrightTimeoutError as exc:
                 print(
-                    decoded[begin:end]
+                    f"    -> ERROR/TIMEOUT: {exc}",
+                    file=sys.stderr,
                 )
 
-    print()
-    print("=" * 70)
-    print("END DIAGNOSTIC INFORMATION")
-    print("=" * 70)
+                # Do not silently classify a timeout as unavailable.
+                # Failing the entire run is safer than publishing
+                # incorrect data.
+                raise
 
+            except Exception as exc:
+                print(
+                    f"    -> ERROR: {exc}",
+                    file=sys.stderr,
+                )
+                raise
 
-def main():
+            await page.wait_for_timeout(
+                int(DELAY_BETWEEN_COUNTRIES_SECONDS * 1000)
+            )
 
-    session = requests.Session()
+        # -------------------------------------------------------------
+        # Create the monitored text file.
+        #
+        # Both sections retain the website's original dropdown order.
+        # -------------------------------------------------------------
 
-    session.headers.update(
-        HEADERS
-    )
+        lines = []
 
-    print(
-        "=" * 70
-    )
+        lines.append("ALL DESTINATIONS")
+        lines.append("================")
+        lines.extend(destination["name"] for destination in destinations)
 
-    print(
-        "BH Pošta diagnostic"
-    )
+        lines.append("")
+        lines.append("UNAVAILABLE")
+        lines.append("===========")
+        lines.extend(destination["name"] for destination in unavailable)
 
-    print(
-        "=" * 70
-    )
+        content = "\n".join(lines) + "\n"
 
-    print()
-    print(
-        "Downloading calculator..."
-    )
+        OUTPUT_FILE.write_text(
+            content,
+            encoding="utf-8",
+        )
 
-    response = session.get(
-        CALCULATOR_URL,
-        timeout=60
-    )
+        print()
+        print(f"Destinations: {len(destinations)}")
+        print(f"Unavailable:  {len(unavailable)}")
+        print(f"Written:      {OUTPUT_FILE}")
 
-    response.raise_for_status()
-
-    print(
-        f"Initial response: "
-        f"{response.status_code}, "
-        f"{len(response.text):,} bytes"
-    )
-
-    initial_html = response.text
-
-    soup = BeautifulSoup(
-        initial_html,
-        "html.parser"
-    )
-
-    fields = hidden_fields(
-        soup
-    )
-
-    print()
-    print(
-        f"Hidden fields found: "
-        f"{len(fields)}"
-    )
-
-    print()
-    print(
-        "Submitting international-tab AJAX request..."
-    )
-
-    fields.update({
-        "ScriptManager1":
-            "UpdatePanel1|btnMeDoIzracunaj",
-
-        "ASPxTabControl1":
-            '{"activeTabIndex":1}',
-
-        "__EVENTTARGET":
-            "",
-
-        "__EVENTARGUMENT":
-            "",
-
-        "__ASYNCPOST":
-            "true",
-    })
-
-    response = session.post(
-        CALCULATOR_URL,
-        data=fields,
-        timeout=60,
-        headers={
-            "Referer": CALCULATOR_URL,
-            "X-Requested-With":
-                "XMLHttpRequest",
-            "X-MicrosoftAjax":
-                "Delta=true",
-        },
-    )
-
-    response.raise_for_status()
-
-    print(
-        f"AJAX response: "
-        f"{response.status_code}, "
-        f"{len(response.text):,} bytes"
-    )
-
-    show_relevant_response(
-        response.text
-    )
-
-    # Also save locally in the runner.
-    Path(
-        "debug"
-    ).mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    Path(
-        "debug/response.txt"
-    ).write_text(
-        response.text,
-        encoding="utf-8"
-    )
-
-    print()
-    print(
-        "Diagnostic completed."
-    )
+        await browser.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
