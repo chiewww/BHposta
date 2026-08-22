@@ -1,15 +1,39 @@
 import asyncio
 import os
+import re
 from pathlib import Path
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 URL = os.environ.get(
     "CALCULATOR_URL",
     "https://www.posta.ba/kalkulator-cijena/"
 )
 
+ERROR_MESSAGE = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
+
+OUTPUT_FILE = Path("countries.txt")
+
+DIAGNOSTIC_HTML = Path("page.html")
+DIAGNOSTIC_RESPONSE = Path("response.html")
+DIAGNOSTIC_SCREENSHOT = Path("diagnostic.png")
+DIAGNOSTIC_TEXT = Path("diagnostic.txt")
+
+# How long to wait for page operations.
+TIMEOUT = 30_000
+
+# Small pause after ASP.NET postbacks.
+POSTBACK_WAIT = 1.5
+
+
+# ============================================================
+# HELPERS
+# ============================================================
 
 def section(title):
     print()
@@ -18,359 +42,780 @@ def section(title):
     print("=" * 70)
 
 
+def clean_text(text):
+    if not text:
+        return ""
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def write_diagnostic(message):
+    print(message)
+
+    with DIAGNOSTIC_TEXT.open("a", encoding="utf-8") as f:
+        f.write(message + "\n")
+
+
+async def save_frame_html(frame, filename):
+    try:
+        html = await frame.content()
+
+        with filename.open("w", encoding="utf-8") as f:
+            f.write(html)
+
+        return html
+
+    except Exception as e:
+        write_diagnostic(f"Could not save HTML: {e}")
+        return ""
+
+
+async def wait_for_stability(page):
+    """
+    Give JavaScript / ASP.NET UpdatePanel time to finish.
+    """
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT)
+    except Exception:
+        pass
+
+    await page.wait_for_timeout(1000)
+
+
+async def find_frame_with_selector(page, selector):
+    """
+    Search the main document and every iframe for a selector.
+    """
+
+    # Main frame first.
+    try:
+        if await page.locator(selector).count() > 0:
+            return page.main_frame
+    except Exception:
+        pass
+
+    # Then all child frames.
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+
+        try:
+            if await frame.locator(selector).count() > 0:
+                return frame
+        except Exception:
+            pass
+
+    return None
+
+
+async def find_calculator_frame(page):
+    """
+    The calculator HTML we were given is ASP.NET and should contain
+    ddlMeDoOdrediste.
+
+    Search for that first.
+
+    If it isn't present, look for other strong calculator identifiers.
+    """
+
+    selectors = [
+        "#ddlMeDoOdrediste",
+        "select[name='ddlMeDoOdrediste']",
+        "#ASPxTabControl1",
+        "#chbMeDoAvionski",
+        "select[name='ddlMeDoOdrediste'] option",
+    ]
+
+    for selector in selectors:
+        frame = await find_frame_with_selector(page, selector)
+
+        if frame:
+            write_diagnostic(
+                f"Calculator found using selector: {selector}"
+            )
+            write_diagnostic(
+                f"Calculator frame URL: {frame.url}"
+            )
+            return frame
+
+    return None
+
+
+async def print_page_diagnostics(page):
+    section("SEARCHING RAW HTML")
+
+    html = await page.content()
+
+    DIAGNOSTIC_HTML.write_text(html, encoding="utf-8")
+
+    print(f"Main page HTML length: {len(html):,}")
+
+    searches = [
+        "ddlMeDoOdrediste",
+        "chbMeDoAvionski",
+        "tbxMeDoAvioTezina",
+        "btnMeDoIzracunaj",
+        "btnMeObPiIzracunaj",
+        "Međunarodni promet",
+        "Unutrašnji promet",
+        "UpdatePanel",
+        "ASPxTabControl1",
+        "Kalkulator",
+        "Prijem pošiljaka",
+        "Izračunaj",
+    ]
+
+    for term in searches:
+        print(f"{term!r:45} -> {html.count(term)}")
+
+    print()
+    print("=" * 70)
+    print("IFRAMES")
+    print("=" * 70)
+
+    print(f"Number of frames: {len(page.frames)}")
+
+    for index, frame in enumerate(page.frames):
+        try:
+            frame_url = frame.url
+        except Exception:
+            frame_url = "UNKNOWN"
+
+        print()
+        print(f"Frame {index}")
+        print(f"URL: {frame_url}")
+
+        try:
+            frame_html = await frame.content()
+
+            print(f"HTML length: {len(frame_html):,}")
+
+            for term in [
+                "ddlMeDoOdrediste",
+                "chbMeDoAvionski",
+                "ASPxTabControl1",
+                "Međunarodni promet",
+                "Izračunaj",
+            ]:
+                count = frame_html.count(term)
+
+                if count:
+                    print(f"  {term!r}: {count}")
+
+        except Exception as e:
+            print(f"Could not inspect frame: {e}")
+
+
+# ============================================================
+# COUNTRY EXTRACTION
+# ============================================================
+
+async def extract_countries(frame):
+    """
+    Extract countries directly from:
+
+        <select name="ddlMeDoOdrediste">
+            <option value="AF">Afganistan</option>
+            ...
+
+    The order is deliberately preserved.
+    """
+
+    section("DESTINATION DROPDOWN")
+
+    locator = frame.locator(
+        "select[name='ddlMeDoOdrediste']"
+    )
+
+    count = await locator.count()
+
+    print(f"Destination dropdown count: {count}")
+
+    if count == 0:
+        raise RuntimeError(
+            "Could not find destination dropdown "
+            "select[name='ddlMeDoOdrediste']"
+        )
+
+    select = locator.first
+
+    options = select.locator("option")
+
+    option_count = await options.count()
+
+    print(f"Number of options: {option_count}")
+
+    countries = []
+
+    for i in range(option_count):
+
+        option = options.nth(i)
+
+        name = clean_text(await option.inner_text())
+        value = await option.get_attribute("value")
+
+        if not name:
+            continue
+
+        countries.append(
+            {
+                "name": name,
+                "value": value or "",
+            }
+        )
+
+    print()
+    print("Countries found:")
+    print()
+
+    for i, country in enumerate(countries, start=1):
+        print(
+            f"{i:3}. {country['name']} "
+            f"[{country['value']}]"
+        )
+
+    return countries
+
+
+# ============================================================
+# CHECK CURRENT ERROR
+# ============================================================
+
+async def page_contains_error(frame):
+    """
+    Check visible text for the exact error message.
+    """
+
+    try:
+        body_text = await frame.locator("body").inner_text(
+            timeout=10_000
+        )
+
+        normalized = clean_text(body_text)
+
+        return ERROR_MESSAGE in normalized
+
+    except Exception:
+        return False
+
+
+async def get_visible_text(frame):
+    try:
+        return clean_text(
+            await frame.locator("body").inner_text(
+                timeout=10_000
+            )
+        )
+    except Exception:
+        return ""
+
+
+# ============================================================
+# SELECT DESTINATION
+# ============================================================
+
+async def select_destination(frame, country_value):
+    """
+    Select the country.
+
+    The real calculator has:
+
+        onchange="javascript:setTimeout(
+            '__doPostBack(\'ddlMeDoOdrediste\',\'\')',
+            0
+        )"
+
+    So selecting the option causes an ASP.NET postback.
+
+    Playwright's select_option triggers the onchange JavaScript.
+    """
+
+    select = frame.locator(
+        "select[name='ddlMeDoOdrediste']"
+    ).first
+
+    await select.select_option(value=country_value)
+
+    # Allow the onchange timer to fire.
+    await frame.page.wait_for_timeout(500)
+
+    # Wait for the ASP.NET update.
+    await frame.page.wait_for_timeout(
+        int(POSTBACK_WAIT * 1000)
+    )
+
+
+# ============================================================
+# CALCULATE
+# ============================================================
+
+async def click_calculate(frame):
+    """
+    Click the appropriate calculation button.
+
+    International traffic may use btnMeDoIzracunaj.
+
+    The HTML diagnostic supplied earlier also showed
+    btnMeObPiIzracunaj, so both are supported.
+    """
+
+    selectors = [
+        "#btnMeDoIzracunaj",
+        "input[name='btnMeDoIzracunaj']",
+        "#btnMeObPiIzracunaj",
+        "input[name='btnMeObPiIzracunaj']",
+        "input[type='submit'][value='Izračunaj']",
+    ]
+
+    for selector in selectors:
+
+        locator = frame.locator(selector)
+
+        try:
+            count = await locator.count()
+
+            if count == 0:
+                continue
+
+            # Use the first visible button.
+            for i in range(count):
+
+                button = locator.nth(i)
+
+                try:
+                    if not await button.is_visible():
+                        continue
+
+                    await button.click()
+
+                    await frame.page.wait_for_timeout(
+                        int(POSTBACK_WAIT * 1000)
+                    )
+
+                    return True
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    return False
+
+
+# ============================================================
+# TEST ONE COUNTRY
+# ============================================================
+
+async def test_country(page, frame, country, index, total):
+    name = country["name"]
+    value = country["value"]
+
+    print()
+    print(
+        f"[{index}/{total}] Testing: "
+        f"{name} [{value}]"
+    )
+
+    try:
+        # Select destination.
+        await select_destination(
+            frame,
+            value
+        )
+
+        # Check whether destination selection itself already
+        # produced the unavailable message.
+        if await page_contains_error(frame):
+            print("  -> ERROR MESSAGE PRESENT after destination selection")
+            return True
+
+        # Click calculation.
+        clicked = await click_calculate(frame)
+
+        if not clicked:
+            print("  -> Could not find/click Izračunaj")
+            return False
+
+        # Check result.
+        if await page_contains_error(frame):
+            print("  -> NOT AVAILABLE")
+            return True
+
+        # No exact error.
+        print("  -> AVAILABLE / NO ERROR")
+
+        return False
+
+    except Exception as e:
+        print(f"  -> ERROR while testing country: {e}")
+
+        return False
+
+
+# ============================================================
+# WRITE OUTPUT
+# ============================================================
+
+def write_countries_file(countries, unavailable):
+    """
+    Output is intentionally NOT alphabetized.
+
+    The original dropdown order is preserved.
+
+    Format:
+
+    ALL DESTINATIONS
+    ----------------
+    Afganistan
+    Albanija
+    ...
+
+    NOT CURRENTLY ACCEPTED
+    ----------------------
+    ...
+    """
+
+    lines = []
+
+    lines.append("ALL DESTINATIONS")
+    lines.append("================")
+    lines.append("")
+
+    for country in countries:
+        lines.append(country["name"])
+
+    lines.append("")
+    lines.append("")
+    lines.append("NOT CURRENTLY ACCEPTED")
+    lines.append("======================")
+    lines.append("")
+
+    unavailable_names = {
+        country["name"]
+        for country in unavailable
+    }
+
+    # IMPORTANT:
+    # Preserve original dropdown order here too.
+    for country in countries:
+        if country["name"] in unavailable_names:
+            lines.append(country["name"])
+
+    lines.append("")
+
+    OUTPUT_FILE.write_text(
+        "\n".join(lines),
+        encoding="utf-8"
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
 async def main():
-    section("JP BH POŠTA CALCULATOR DIAGNOSTIC 2")
+
+    # Start fresh diagnostic log.
+    DIAGNOSTIC_TEXT.write_text(
+        "",
+        encoding="utf-8"
+    )
+
+    section("JP BH POŠTA CALCULATOR MONITOR")
 
     print(f"URL: {URL}")
 
     if not URL:
-        raise RuntimeError("CALCULATOR_URL is empty")
+        raise RuntimeError(
+            "CALCULATOR_URL is empty"
+        )
 
     async with async_playwright() as p:
 
         browser = await p.chromium.launch(
-            headless=True
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ],
         )
 
         context = await browser.new_context(
-            viewport={"width": 1440, "height": 1200},
+            viewport={
+                "width": 1440,
+                "height": 1200,
+            },
             locale="hr-HR",
+            timezone_id="Europe/Sarajevo",
+            user_agent=(
+                "Mozilla/5.0 "
+                "(X11; Linux x86_64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/131.0.0.0 "
+                "Safari/537.36"
+            ),
         )
 
         page = await context.new_page()
 
-        # Capture browser console messages.
-        page.on(
-            "console",
-            lambda msg: print(
-                f"[CONSOLE {msg.type}] {msg.text}"
-            )
-        )
+        page.set_default_timeout(TIMEOUT)
 
-        # Capture page errors.
-        page.on(
-            "pageerror",
-            lambda exc: print(
-                f"[PAGE ERROR] {exc}"
-            )
-        )
-
-        # Capture requests/responses involving interesting resources.
-        async def response_handler(response):
-            url = response.url.lower()
-
-            interesting = (
-                "default.aspx" in url
-                or "dxr.axd" in url
-                or "post" in url
-            )
-
-            if interesting:
-                print(
-                    f"[RESPONSE] {response.status} {response.url}"
-                )
-
-        page.on("response", response_handler)
+        # ----------------------------------------------------
+        # OPEN PAGE
+        # ----------------------------------------------------
 
         section("OPENING PAGE")
 
-        response = await page.goto(
-            URL,
-            wait_until="domcontentloaded",
-            timeout=60000,
-        )
+        print("Opening page...")
+
+        try:
+
+            response = await page.goto(
+                URL,
+                wait_until="domcontentloaded",
+                timeout=TIMEOUT,
+            )
+
+            if response:
+                print(
+                    f"HTTP status: {response.status}"
+                )
+
+                print(
+                    f"Final URL: {page.url}"
+                )
+
+                # Save raw HTTP response.
+                try:
+                    body = await response.body()
+
+                    DIAGNOSTIC_RESPONSE.write_bytes(
+                        body
+                    )
+
+                    print(
+                        f"Response body saved: "
+                        f"{len(body):,} bytes"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"Could not save response body: {e}"
+                    )
+
+        except Exception as e:
+
+            print()
+            print("PAGE NAVIGATION FAILED")
+            print(str(e))
+
+            await page.screenshot(
+                path=str(DIAGNOSTIC_SCREENSHOT),
+                full_page=True,
+            )
+
+            await browser.close()
+
+            raise
+
+        await wait_for_stability(page)
 
         print(
-            f"HTTP status: "
-            f"{response.status if response else 'unknown'}"
+            f"Page title: "
+            f"{await page.title()}"
         )
 
-        print(f"Final URL: {page.url}")
-        print(f"Page title: {await page.title()}")
+        # ----------------------------------------------------
+        # INITIAL DIAGNOSTICS
+        # ----------------------------------------------------
 
-        section("WAITING FOR JAVASCRIPT")
+        await print_page_diagnostics(page)
 
-        await page.wait_for_timeout(5000)
-
-        print("Waited 5 seconds.")
-
-        # Try network idle, but don't fail if the site keeps connections open.
+        # Save screenshot.
         try:
-            await page.wait_for_load_state(
-                "networkidle",
-                timeout=30000,
+            await page.screenshot(
+                path=str(DIAGNOSTIC_SCREENSHOT),
+                full_page=True,
             )
-            print("Network became idle.")
+
+            print(
+                f"Screenshot saved to: "
+                f"{DIAGNOSTIC_SCREENSHOT}"
+            )
+
         except Exception as e:
             print(
-                "Network did not become idle within timeout:"
+                f"Could not save screenshot: {e}"
             )
-            print(e)
 
-        await page.wait_for_timeout(5000)
+        # ----------------------------------------------------
+        # FIND CALCULATOR
+        # ----------------------------------------------------
 
-        print("Waited another 5 seconds.")
+        section("LOCATING CALCULATOR")
 
-        section("PAGE INFORMATION")
+        frame = await find_calculator_frame(page)
 
-        print(f"URL: {page.url}")
-        print(f"Title: {await page.title()}")
+        if frame is None:
+
+            print()
+            print(
+                "ERROR: The calculator controls were not found."
+            )
+
+            print()
+            print(
+                "The browser did not receive the ASP.NET "
+                "calculator HTML."
+            )
+
+            print()
+            print(
+                "Expected selector:"
+            )
+
+            print(
+                "  #ddlMeDoOdrediste"
+            )
+
+            print()
+            print(
+                "The saved page.html and response.html "
+                "should show what GitHub actually received."
+            )
+
+            await browser.close()
+
+            raise RuntimeError(
+                "Calculator controls not found. "
+                "See page.html and response.html."
+            )
 
         print(
-            "Body exists:",
-            await page.locator("body").count()
+            f"Using calculator frame: {frame.url}"
         )
 
-        body_text = await page.locator("body").inner_text()
+        # ----------------------------------------------------
+        # EXTRACT COUNTRIES
+        # ----------------------------------------------------
+
+        countries = await extract_countries(
+            frame
+        )
+
+        if not countries:
+            await browser.close()
+
+            raise RuntimeError(
+                "Destination dropdown exists but "
+                "contains no countries."
+            )
+
+        # ----------------------------------------------------
+        # TEST COUNTRIES
+        # ----------------------------------------------------
+
+        section("TESTING DESTINATIONS")
+
+        unavailable = []
+
+        total = len(countries)
 
         print(
-            f"Body text length: {len(body_text)}"
+            f"Testing {total} destinations."
+        )
+
+        print(
+            "Original dropdown order will be preserved."
+        )
+
+        for index, country in enumerate(
+            countries,
+            start=1
+        ):
+
+            is_unavailable = await test_country(
+                page,
+                frame,
+                country,
+                index,
+                total,
+            )
+
+            if is_unavailable:
+                unavailable.append(country)
+
+        # ----------------------------------------------------
+        # WRITE OUTPUT
+        # ----------------------------------------------------
+
+        section("RESULT")
+
+        write_countries_file(
+            countries,
+            unavailable
+        )
+
+        print(
+            f"Total destinations: "
+            f"{len(countries)}"
+        )
+
+        print(
+            f"Unavailable destinations: "
+            f"{len(unavailable)}"
         )
 
         print()
-        print("FIRST 10000 CHARACTERS OF BODY TEXT")
-        print("-" * 70)
-        print(body_text[:10000])
-
-        section("RAW HTML")
-
-        html = await page.content()
-
         print(
-            f"HTML length: {len(html)}"
+            "Unavailable destinations:"
         )
 
-        Path("page.html").write_text(
-            html,
-            encoding="utf-8",
-        )
-
-        print("Saved page.html")
-
-        section("SEARCHING RAW HTML")
-
-        searches = [
-            "ddlMeDoOdrediste",
-            "chbMeDoAvionski",
-            "tbxMeDoAvioTezina",
-            "btnMeDoIzracunaj",
-            "btnMeObPiIzracunaj",
-            "Međunarodni promet",
-            "Unutrašnji promet",
-            "UpdatePanel",
-            "ASPxTabControl1",
-            "Kalkulator",
-            "Prijem pošiljaka",
-            "Izračunaj",
-        ]
-
-        for text in searches:
-            count = html.count(text)
-
+        for country in unavailable:
             print(
-                f"{text!r:<45} -> {count}"
+                f"  {country['name']}"
             )
 
-        section("IFRAMES")
-
-        frames = page.frames
-
+        print()
         print(
-            f"Number of frames: {len(frames)}"
+            f"Output written to: "
+            f"{OUTPUT_FILE}"
         )
 
-        for i, frame in enumerate(frames):
-            print()
-            print(f"FRAME {i}")
-            print(f"URL: {frame.url}")
+        # ----------------------------------------------------
+        # FINAL ERROR CHECK
+        # ----------------------------------------------------
 
-            try:
-                frame_html = await frame.content()
+        section("FINAL DIAGNOSTIC")
 
-                print(
-                    f"HTML length: {len(frame_html)}"
-                )
-
-                for text in searches:
-                    count = frame_html.count(text)
-
-                    if count:
-                        print(
-                            f"  {text!r}: {count}"
-                        )
-
-            except Exception as e:
-                print(
-                    f"Could not inspect frame: {e}"
-                )
-
-        section("FORMS")
-
-        forms = page.locator("form")
-
-        form_count = await forms.count()
-
-        print(
-            f"Forms found: {form_count}"
+        final_text = await get_visible_text(
+            frame
         )
 
-        for i in range(form_count):
-            form = forms.nth(i)
-
-            print()
-            print(f"FORM {i}")
-
-            try:
-                print(
-                    "id:",
-                    await form.get_attribute("id")
-                )
-
-                print(
-                    "action:",
-                    await form.get_attribute("action")
-                )
-
-                print(
-                    "method:",
-                    await form.get_attribute("method")
-                )
-
-            except Exception as e:
-                print(e)
-
-        section("EXPECTED CONTROLS")
-
-        selectors = [
-            "#ddlMeDoOdrediste",
-            "#chbMeDoAvionski",
-            "#tbxMeDoAvioTezina",
-            "#btnMeDoIzracunaj",
-            "#btnMeObPiIzracunaj",
-            "input[type='submit']",
-            "input[type='button']",
-            "input[type='image']",
-        ]
-
-        for selector in selectors:
-
-            try:
-                count = await page.locator(selector).count()
-
-                print(
-                    f"{selector:<40} -> {count}"
-                )
-
-            except Exception as e:
-                print(
-                    f"{selector:<40} -> ERROR {e}"
-                )
-
-        section("ALL SELECT ELEMENTS")
-
-        selects = page.locator("select")
-
-        select_count = await selects.count()
-
-        print(
-            f"Select elements: {select_count}"
-        )
-
-        for i in range(select_count):
-
-            select = selects.nth(i)
-
-            print()
-            print(f"SELECT {i}")
-
-            try:
-                print(
-                    "id:",
-                    await select.get_attribute("id")
-                )
-
-                print(
-                    "name:",
-                    await select.get_attribute("name")
-                )
-
-                print(
-                    "options:",
-                    await select.locator("option").count()
-                )
-
-            except Exception as e:
-                print(e)
-
-        section("BUTTONS / INPUTS")
-
-        inputs = page.locator("input")
-
-        input_count = await inputs.count()
-
-        print(
-            f"Input elements: {input_count}"
-        )
-
-        for i in range(min(input_count, 200)):
-
-            element = inputs.nth(i)
-
-            try:
-                tag = await element.evaluate(
-                    "(el) => el.tagName"
-                )
-
-                element_id = await element.get_attribute("id")
-                name = await element.get_attribute("name")
-                input_type = await element.get_attribute("type")
-                value = await element.get_attribute("value")
-
-                print(
-                    f"{i:3d}: "
-                    f"tag={tag} "
-                    f"type={input_type!r} "
-                    f"id={element_id!r} "
-                    f"name={name!r} "
-                    f"value={value!r}"
-                )
-
-            except Exception as e:
-                print(
-                    f"{i:3d}: ERROR {e}"
-                )
-
-        section("SCREENSHOT")
-
-        await page.screenshot(
-            path="diagnostic.png",
-            full_page=True,
-        )
-
-        print(
-            "Saved diagnostic.png"
-        )
-
-        section("FINAL STATUS")
-
-        if "ddlMeDoOdrediste" in html:
+        if ERROR_MESSAGE in final_text:
             print(
-                "SUCCESS: ddlMeDoOdrediste exists in raw HTML."
-            )
-            print(
-                "The problem is likely DOM/rendering/timing."
+                "ERROR MESSAGE IS CURRENTLY PRESENT"
             )
         else:
             print(
-                "ddlMeDoOdrediste is NOT present in raw HTML."
+                "ERROR MESSAGE IS NOT CURRENTLY PRESENT"
             )
-            print(
-                "The server response received by GitHub Actions "
-                "differs from the HTML you supplied."
-            )
+
+        print()
+        print(
+            f"Diagnostic report saved to: "
+            f"{DIAGNOSTIC_TEXT}"
+        )
 
         await browser.close()
 
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
     asyncio.run(main())
