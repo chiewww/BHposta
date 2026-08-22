@@ -5,24 +5,26 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 
-CALCULATOR_URL = os.environ.get(
+URL = os.environ.get(
     "CALCULATOR_URL",
-    "https://www.posta.ba/kalkulator-cijena/",
+    "https://www.posta.ba/kalkulator-cijena/"
 )
 
-DIAGNOSTIC_FILE = Path("diagnostic.txt")
 
-TIMEOUT_MS = 30_000
+def section(title):
+    print()
+    print("=" * 70)
+    print(title)
+    print("=" * 70)
 
 
 async def main():
+    section("JP BH POŠTA CALCULATOR DIAGNOSTIC 2")
 
-    print("=" * 70)
-    print("JP BH POŠTA CALCULATOR DIAGNOSTIC")
-    print("=" * 70)
-    print()
-    print(f"URL: {CALCULATOR_URL}")
-    print()
+    print(f"URL: {URL}")
+
+    if not URL:
+        raise RuntimeError("CALCULATOR_URL is empty")
 
     async with async_playwright() as p:
 
@@ -30,42 +32,214 @@ async def main():
             headless=True
         )
 
-        page = await browser.new_page(
-            viewport={
-                "width": 1440,
-                "height": 1200,
-            },
+        context = await browser.new_context(
+            viewport={"width": 1440, "height": 1200},
             locale="hr-HR",
         )
 
-        page.set_default_timeout(TIMEOUT_MS)
+        page = await context.new_page()
 
-        print("Opening page...")
-
-        response = await page.goto(
-            CALCULATOR_URL,
-            wait_until="domcontentloaded",
-            timeout=TIMEOUT_MS,
+        # Capture browser console messages.
+        page.on(
+            "console",
+            lambda msg: print(
+                f"[CONSOLE {msg.type}] {msg.text}"
+            )
         )
 
-        print(f"HTTP status: {response.status if response else 'unknown'}")
+        # Capture page errors.
+        page.on(
+            "pageerror",
+            lambda exc: print(
+                f"[PAGE ERROR] {exc}"
+            )
+        )
+
+        # Capture requests/responses involving interesting resources.
+        async def response_handler(response):
+            url = response.url.lower()
+
+            interesting = (
+                "default.aspx" in url
+                or "dxr.axd" in url
+                or "post" in url
+            )
+
+            if interesting:
+                print(
+                    f"[RESPONSE] {response.status} {response.url}"
+                )
+
+        page.on("response", response_handler)
+
+        section("OPENING PAGE")
+
+        response = await page.goto(
+            URL,
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+
+        print(
+            f"HTTP status: "
+            f"{response.status if response else 'unknown'}"
+        )
+
         print(f"Final URL: {page.url}")
+        print(f"Page title: {await page.title()}")
+
+        section("WAITING FOR JAVASCRIPT")
+
+        await page.wait_for_timeout(5000)
+
+        print("Waited 5 seconds.")
+
+        # Try network idle, but don't fail if the site keeps connections open.
+        try:
+            await page.wait_for_load_state(
+                "networkidle",
+                timeout=30000,
+            )
+            print("Network became idle.")
+        except Exception as e:
+            print(
+                "Network did not become idle within timeout:"
+            )
+            print(e)
+
+        await page.wait_for_timeout(5000)
+
+        print("Waited another 5 seconds.")
+
+        section("PAGE INFORMATION")
+
+        print(f"URL: {page.url}")
+        print(f"Title: {await page.title()}")
+
+        print(
+            "Body exists:",
+            await page.locator("body").count()
+        )
+
+        body_text = await page.locator("body").inner_text()
+
+        print(
+            f"Body text length: {len(body_text)}"
+        )
+
         print()
+        print("FIRST 10000 CHARACTERS OF BODY TEXT")
+        print("-" * 70)
+        print(body_text[:10000])
 
-        await page.wait_for_timeout(3000)
+        section("RAW HTML")
 
-        # -------------------------------------------------------------
-        # Basic page information
-        # -------------------------------------------------------------
+        html = await page.content()
 
-        title = await page.title()
+        print(
+            f"HTML length: {len(html)}"
+        )
 
-        print(f"Page title: {title}")
-        print()
+        Path("page.html").write_text(
+            html,
+            encoding="utf-8",
+        )
 
-        # -------------------------------------------------------------
-        # Check expected selectors
-        # -------------------------------------------------------------
+        print("Saved page.html")
+
+        section("SEARCHING RAW HTML")
+
+        searches = [
+            "ddlMeDoOdrediste",
+            "chbMeDoAvionski",
+            "tbxMeDoAvioTezina",
+            "btnMeDoIzracunaj",
+            "btnMeObPiIzracunaj",
+            "Međunarodni promet",
+            "Unutrašnji promet",
+            "UpdatePanel",
+            "ASPxTabControl1",
+            "Kalkulator",
+            "Prijem pošiljaka",
+            "Izračunaj",
+        ]
+
+        for text in searches:
+            count = html.count(text)
+
+            print(
+                f"{text!r:<45} -> {count}"
+            )
+
+        section("IFRAMES")
+
+        frames = page.frames
+
+        print(
+            f"Number of frames: {len(frames)}"
+        )
+
+        for i, frame in enumerate(frames):
+            print()
+            print(f"FRAME {i}")
+            print(f"URL: {frame.url}")
+
+            try:
+                frame_html = await frame.content()
+
+                print(
+                    f"HTML length: {len(frame_html)}"
+                )
+
+                for text in searches:
+                    count = frame_html.count(text)
+
+                    if count:
+                        print(
+                            f"  {text!r}: {count}"
+                        )
+
+            except Exception as e:
+                print(
+                    f"Could not inspect frame: {e}"
+                )
+
+        section("FORMS")
+
+        forms = page.locator("form")
+
+        form_count = await forms.count()
+
+        print(
+            f"Forms found: {form_count}"
+        )
+
+        for i in range(form_count):
+            form = forms.nth(i)
+
+            print()
+            print(f"FORM {i}")
+
+            try:
+                print(
+                    "id:",
+                    await form.get_attribute("id")
+                )
+
+                print(
+                    "action:",
+                    await form.get_attribute("action")
+                )
+
+                print(
+                    "method:",
+                    await form.get_attribute("method")
+                )
+
+            except Exception as e:
+                print(e)
+
+        section("EXPECTED CONTROLS")
 
         selectors = [
             "#ddlMeDoOdrediste",
@@ -73,461 +247,127 @@ async def main():
             "#tbxMeDoAvioTezina",
             "#btnMeDoIzracunaj",
             "#btnMeObPiIzracunaj",
-            "#btnMeDoIzracunaj",
             "input[type='submit']",
             "input[type='button']",
             "input[type='image']",
         ]
 
-        diagnostic_lines = []
-
-        diagnostic_lines.append(
-            "JP BH POŠTA CALCULATOR DIAGNOSTIC"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-        diagnostic_lines.append(
-            f"Requested URL: {CALCULATOR_URL}"
-        )
-        diagnostic_lines.append(
-            f"Final URL: {page.url}"
-        )
-        diagnostic_lines.append(
-            f"Page title: {title}"
-        )
-        diagnostic_lines.append("")
-
-        print("=" * 70)
-        print("EXPECTED CONTROLS")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "EXPECTED CONTROLS"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
         for selector in selectors:
 
-            count = await page.locator(selector).count()
+            try:
+                count = await page.locator(selector).count()
 
-            print(
-                f"{selector:35} -> {count} found"
-            )
-
-            diagnostic_lines.append(
-                f"{selector:35} -> {count} found"
-            )
-
-        print()
-
-        # -------------------------------------------------------------
-        # Destination dropdown
-        # -------------------------------------------------------------
-
-        destination = page.locator(
-            "#ddlMeDoOdrediste"
-        )
-
-        destination_count = await destination.count()
-
-        diagnostic_lines.append("")
-        diagnostic_lines.append(
-            "DESTINATION DROPDOWN"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        print("=" * 70)
-        print("DESTINATION DROPDOWN")
-        print("=" * 70)
-
-        if destination_count == 0:
-
-            print(
-                "NOT FOUND: #ddlMeDoOdrediste"
-            )
-
-            diagnostic_lines.append(
-                "NOT FOUND: #ddlMeDoOdrediste"
-            )
-
-        else:
-
-            options = await destination.locator(
-                "option"
-            ).evaluate_all(
-                """
-                options => options.map((option, index) => ({
-                    index: index,
-                    value: option.value,
-                    name: option.textContent.trim(),
-                    selected: option.selected
-                }))
-                """
-            )
-
-            print(
-                f"Number of options: {len(options)}"
-            )
-
-            diagnostic_lines.append(
-                f"Number of options: {len(options)}"
-            )
-
-            diagnostic_lines.append("")
-
-            for option in options:
-
-                line = (
-                    f"{option['index'] + 1}. "
-                    f"value={option['value']!r} "
-                    f"name={option['name']!r} "
-                    f"selected={option['selected']}"
+                print(
+                    f"{selector:<40} -> {count}"
                 )
 
-                print(line)
-
-                diagnostic_lines.append(line)
-
-        print()
-
-        # -------------------------------------------------------------
-        # Avionski prijenos checkbox
-        # -------------------------------------------------------------
-
-        print("=" * 70)
-        print("AVIONSKI PRIJENOS")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "AVIONSKI PRIJENOS"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        air = page.locator(
-            "#chbMeDoAvionski"
-        )
-
-        if await air.count() == 0:
-
-            print(
-                "NOT FOUND: #chbMeDoAvionski"
-            )
-
-            diagnostic_lines.append(
-                "NOT FOUND: #chbMeDoAvionski"
-            )
-
-        else:
-
-            checked = await air.is_checked()
-
-            html = await air.evaluate(
-                "element => element.outerHTML"
-            )
-
-            print(
-                f"Checked: {checked}"
-            )
-            print(
-                f"HTML: {html}"
-            )
-
-            diagnostic_lines.append(
-                f"Checked: {checked}"
-            )
-            diagnostic_lines.append(
-                f"HTML: {html}"
-            )
-
-        print()
-
-        # -------------------------------------------------------------
-        # Weight input
-        # -------------------------------------------------------------
-
-        print("=" * 70)
-        print("AIR WEIGHT INPUT")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "AIR WEIGHT INPUT"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        weight = page.locator(
-            "#tbxMeDoAvioTezina"
-        )
-
-        if await weight.count() == 0:
-
-            print(
-                "NOT FOUND: #tbxMeDoAvioTezina"
-            )
-
-            diagnostic_lines.append(
-                "NOT FOUND: #tbxMeDoAvioTezina"
-            )
-
-        else:
-
-            visible = await weight.is_visible()
-            value = await weight.input_value()
-
-            html = await weight.evaluate(
-                "element => element.outerHTML"
-            )
-
-            print(
-                f"Visible: {visible}"
-            )
-            print(
-                f"Current value: {value!r}"
-            )
-            print(
-                f"HTML: {html}"
-            )
-
-            diagnostic_lines.append(
-                f"Visible: {visible}"
-            )
-            diagnostic_lines.append(
-                f"Current value: {value!r}"
-            )
-            diagnostic_lines.append(
-                f"HTML: {html}"
-            )
-
-        print()
-
-        # -------------------------------------------------------------
-        # Find every button/input that could be Izračunaj
-        # -------------------------------------------------------------
-
-        print("=" * 70)
-        print("CALCULATION CONTROLS")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "CALCULATION CONTROLS"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        controls = await page.locator(
-            "input,button"
-        ).evaluate_all(
-            """
-            elements => elements.map((element, index) => ({
-                index: index,
-                tag: element.tagName,
-                type: element.getAttribute("type"),
-                id: element.id,
-                name: element.getAttribute("name"),
-                value: element.getAttribute("value"),
-                text: element.textContent.trim(),
-                title: element.getAttribute("title"),
-                onclick: element.getAttribute("onclick")
-            }))
-            """
-        )
-
-        for control in controls:
-
-            combined = " ".join(
-                str(control.get(key) or "")
-                for key in [
-                    "id",
-                    "name",
-                    "value",
-                    "text",
-                    "title",
-                    "onclick",
-                ]
-            )
-
-            if (
-                "izracunaj" in combined.lower()
-                or "izračunaj" in combined.lower()
-            ):
-
-                line = (
-                    f"index={control['index']} "
-                    f"tag={control['tag']} "
-                    f"type={control['type']!r} "
-                    f"id={control['id']!r} "
-                    f"name={control['name']!r} "
-                    f"value={control['value']!r} "
-                    f"text={control['text']!r} "
-                    f"title={control['title']!r} "
-                    f"onclick={control['onclick']!r}"
+            except Exception as e:
+                print(
+                    f"{selector:<40} -> ERROR {e}"
                 )
 
-                print(line)
+        section("ALL SELECT ELEMENTS")
 
-                diagnostic_lines.append(line)
+        selects = page.locator("select")
 
-        print()
+        select_count = await selects.count()
 
-        # -------------------------------------------------------------
-        # All UpdatePanels
-        # -------------------------------------------------------------
-
-        print("=" * 70)
-        print("UPDATEPANELS")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "UPDATEPANELS"
-        )
-        diagnostic_lines.append(
-            "=" * 70
+        print(
+            f"Select elements: {select_count}"
         )
 
-        panels = await page.locator(
-            "[id*='UpdatePanel'], [id*='updatePanel']"
-        ).evaluate_all(
-            """
-            elements => elements.map(element => ({
-                id: element.id,
-                tag: element.tagName,
-                className: element.className
-            }))
-            """
+        for i in range(select_count):
+
+            select = selects.nth(i)
+
+            print()
+            print(f"SELECT {i}")
+
+            try:
+                print(
+                    "id:",
+                    await select.get_attribute("id")
+                )
+
+                print(
+                    "name:",
+                    await select.get_attribute("name")
+                )
+
+                print(
+                    "options:",
+                    await select.locator("option").count()
+                )
+
+            except Exception as e:
+                print(e)
+
+        section("BUTTONS / INPUTS")
+
+        inputs = page.locator("input")
+
+        input_count = await inputs.count()
+
+        print(
+            f"Input elements: {input_count}"
         )
 
-        for panel in panels:
+        for i in range(min(input_count, 200)):
 
-            line = (
-                f"id={panel['id']!r} "
-                f"tag={panel['tag']} "
-                f"class={panel['className']!r}"
-            )
+            element = inputs.nth(i)
 
-            print(line)
-            diagnostic_lines.append(line)
+            try:
+                tag = await element.evaluate(
+                    "(el) => el.tagName"
+                )
 
-        print()
+                element_id = await element.get_attribute("id")
+                name = await element.get_attribute("name")
+                input_type = await element.get_attribute("type")
+                value = await element.get_attribute("value")
 
-        # -------------------------------------------------------------
-        # Relevant page HTML around the destination control
-        # -------------------------------------------------------------
+                print(
+                    f"{i:3d}: "
+                    f"tag={tag} "
+                    f"type={input_type!r} "
+                    f"id={element_id!r} "
+                    f"name={name!r} "
+                    f"value={value!r}"
+                )
 
-        print("=" * 70)
-        print("DESTINATION CONTROL HTML")
-        print("=" * 70)
+            except Exception as e:
+                print(
+                    f"{i:3d}: ERROR {e}"
+                )
 
-        diagnostic_lines.append(
-            "DESTINATION CONTROL HTML"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        if destination_count:
-
-            destination_html = await destination.evaluate(
-                "element => element.outerHTML"
-            )
-
-            print(destination_html)
-
-            diagnostic_lines.append(
-                destination_html
-            )
-
-        print()
-
-        # -------------------------------------------------------------
-        # Search rendered page for the unavailable message
-        # -------------------------------------------------------------
-
-        ERROR_MESSAGE = (
-            "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
-        )
-
-        body_text = await page.locator(
-            "body"
-        ).inner_text()
-
-        print("=" * 70)
-        print("ERROR MESSAGE CHECK")
-        print("=" * 70)
-
-        diagnostic_lines.append(
-            "ERROR MESSAGE CHECK"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-
-        if ERROR_MESSAGE in body_text:
-
-            print(
-                "ERROR MESSAGE IS CURRENTLY PRESENT"
-            )
-
-            diagnostic_lines.append(
-                "ERROR MESSAGE IS CURRENTLY PRESENT"
-            )
-
-        else:
-
-            print(
-                "ERROR MESSAGE IS NOT CURRENTLY PRESENT"
-            )
-
-            diagnostic_lines.append(
-                "ERROR MESSAGE IS NOT CURRENTLY PRESENT"
-            )
-
-        print()
-
-        # -------------------------------------------------------------
-        # Save screenshot
-        # -------------------------------------------------------------
-
-        screenshot_path = Path(
-            "diagnostic.png"
-        )
+        section("SCREENSHOT")
 
         await page.screenshot(
-            path=str(screenshot_path),
+            path="diagnostic.png",
             full_page=True,
         )
 
         print(
-            f"Screenshot saved to: {screenshot_path}"
+            "Saved diagnostic.png"
         )
 
-        diagnostic_lines.append("")
-        diagnostic_lines.append(
-            f"Screenshot saved to: {screenshot_path}"
-        )
+        section("FINAL STATUS")
 
-        # -------------------------------------------------------------
-        # Save diagnostic text
-        # -------------------------------------------------------------
-
-        DIAGNOSTIC_FILE.write_text(
-            "\n".join(diagnostic_lines) + "\n",
-            encoding="utf-8",
-        )
-
-        print(
-            f"Diagnostic report saved to: {DIAGNOSTIC_FILE}"
-        )
-
-        print()
+        if "ddlMeDoOdrediste" in html:
+            print(
+                "SUCCESS: ddlMeDoOdrediste exists in raw HTML."
+            )
+            print(
+                "The problem is likely DOM/rendering/timing."
+            )
+        else:
+            print(
+                "ddlMeDoOdrediste is NOT present in raw HTML."
+            )
+            print(
+                "The server response received by GitHub Actions "
+                "differs from the HTML you supplied."
+            )
 
         await browser.close()
 
