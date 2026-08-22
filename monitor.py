@@ -2,1310 +2,408 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from urllib.parse import urljoin
 
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
 
 URL = os.environ.get(
     "CALCULATOR_URL",
     "https://www.posta.ba/kalkulator-cijena/",
-).strip()
+)
 
-CALCULATOR_FRAME_HOST = "bhpwebout.posta.ba"
-CALCULATOR_FRAME_PATH = "/KalkulatorCijena_WEB_app/Bos/Default.aspx"
+CALCULATOR_FRAME_URL = "bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/Default.aspx"
 
-ERROR_MESSAGE = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
+ERROR_TEXT = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 
 COUNTRIES_FILE = Path("countries.txt")
 
-PAGE_HTML = Path("page.html")
-IFRAME_HTML = Path("iframe.html")
-DIAGNOSTIC_TXT = Path("diagnostic.txt")
-DIAGNOSTIC_HTML = Path("diagnostic.html")
-SCREENSHOT = Path("diagnostic.png")
-
-TIMEOUT = 30_000
-
-
-# ============================================================
-# OUTPUT HELPERS
-# ============================================================
-
-diagnostic_lines = []
-
 
 def section(title):
-    line = "=" * 70
     print()
-    print(line)
+    print("=" * 70)
     print(title)
-    print(line)
-
-    diagnostic_lines.append("")
-    diagnostic_lines.append(line)
-    diagnostic_lines.append(title)
-    diagnostic_lines.append(line)
+    print("=" * 70)
 
 
-def log(message):
-    print(message)
-    diagnostic_lines.append(str(message))
+def clean_text(text):
+    return re.sub(r"\s+", " ", text or "").strip()
 
 
-def save_diagnostic():
-    DIAGNOSTIC_TXT.write_text(
-        "\n".join(diagnostic_lines),
-        encoding="utf-8",
-    )
+async def save_text(path, text):
+    Path(path).write_text(text or "", encoding="utf-8")
 
 
-def normalize_text(text):
-    if not text:
-        return ""
+async def dump_frame(frame, filename_html, filename_txt):
+    try:
+        html = await frame.content()
+    except Exception as exc:
+        html = f"ERROR GETTING FRAME HTML:\n{exc}"
 
-    return re.sub(r"\s+", " ", text).strip()
+    await save_text(filename_html, html)
 
+    try:
+        text = await frame.locator("body").inner_text(timeout=5000)
+    except Exception:
+        text = ""
 
-# ============================================================
-# FRAME DETECTION
-# ============================================================
+    await save_text(filename_txt, clean_text(text))
 
-def is_calculator_frame(frame):
-    """
-    The real calculator is hosted on:
-
-    https://bhpwebout.posta.ba/
-        KalkulatorCijena_WEB_app/Bos/Default.aspx
-
-    Do NOT identify the frame merely by searching for text such
-    as "Kalkulator". The main page also contains that text.
-    """
-
-    frame_url = (frame.url or "").strip().lower()
-
-    return (
-        CALCULATOR_FRAME_HOST.lower() in frame_url
-        and CALCULATOR_FRAME_PATH.lower() in frame_url
-    )
+    return html, text
 
 
 async def find_calculator_frame(page):
+    """
+    The calculator is hosted in the external bhpwebout.posta.ba iframe.
+    Do NOT assume frame 0 is the calculator.
+    """
+
     section("LOCATING CALCULATOR IFRAME")
 
-    frames = page.frames
+    for index, frame in enumerate(page.frames):
+        print(f"Checking frame {index}: {frame.url}")
 
-    log(f"Number of frames: {len(frames)}")
-
-    for index, frame in enumerate(frames):
-        frame_url = frame.url or ""
-
-        log("")
-        log(f"Checking frame {index}: {frame_url}")
-
-        if is_calculator_frame(frame):
-            log(f"FOUND CALCULATOR FRAME: {index}")
-            log(f"Calculator URL: {frame_url}")
+        if CALCULATOR_FRAME_URL.lower() in frame.url.lower():
+            print(f"FOUND CALCULATOR FRAME: {index}")
+            print(f"Calculator URL: {frame.url}")
             return frame
-
-    log("")
-    log("Calculator frame was not found.")
-
-    log("")
-    log("All frame URLs:")
-
-    for index, frame in enumerate(frames):
-        log(f"  Frame {index}: {frame.url}")
 
     return None
 
 
-# ============================================================
-# SAVE FRAME INFORMATION
-# ============================================================
+async def activate_international(frame):
+    """
+    The initial calculator page is the domestic calculator.
 
-async def save_frame(frame):
-    section("SAVING CALCULATOR IFRAME")
+    The international calculator is activated through the tab control.
+    We deliberately inspect several possible ASPx/HTML representations
+    instead of depending on one exact selector.
+    """
 
-    try:
-        html = await frame.content()
-
-        IFRAME_HTML.write_text(
-            html,
-            encoding="utf-8",
-        )
-
-        log(f"Saved: {IFRAME_HTML} ({len(html):,} bytes)")
-
-        try:
-            text = normalize_text(await frame.locator("body").inner_text())
-
-            Path("iframe.txt").write_text(
-                text,
-                encoding="utf-8",
-            )
-
-            log(f"Saved: iframe.txt ({len(text):,} bytes)")
-
-        except Exception as exc:
-            log(f"Could not save iframe text: {exc}")
-
-        return html
-
-    except Exception as exc:
-        log(f"Could not save calculator iframe: {exc}")
-        return ""
-
-
-# ============================================================
-# DEBUG HTML
-# ============================================================
-
-async def dump_controls(frame):
-    section("CALCULATOR CONTROL DIAGNOSTICS")
-
-    selectors = [
-        "#ddlMeDoOdrediste",
-        "#chbMeDoAvionski",
-        "#tbxMeDoAvioTezina",
-        "#btnMeDoIzracunaj",
-        "#ddlUnObPiTez",
-        "#btnUnObPiIzracunaj",
-        "#ImageButton4",
-        "input[type='submit']",
-        "select",
-        "input",
-        "button",
-    ]
-
-    for selector in selectors:
-        try:
-            count = await frame.locator(selector).count()
-            log(f"{selector:40} -> {count}")
-        except Exception as exc:
-            log(f"{selector:40} -> ERROR: {exc}")
-
-    log("")
-
-    try:
-        selects = frame.locator("select")
-        select_count = await selects.count()
-
-        log(f"SELECT elements: {select_count}")
-
-        for i in range(select_count):
-            element = selects.nth(i)
-
-            log("")
-            log(f"SELECT #{i}")
-
-            try:
-                log(f"  id   = {await element.get_attribute('id')}")
-                log(f"  name = {await element.get_attribute('name')}")
-
-                options = element.locator("option")
-                option_count = await options.count()
-
-                log(f"  options = {option_count}")
-
-                for j in range(option_count):
-                    option = options.nth(j)
-
-                    value = await option.get_attribute("value")
-                    text = normalize_text(await option.inner_text())
-
-                    log(
-                        f"    [{j}] value={value!r} text={text!r}"
-                    )
-
-            except Exception as exc:
-                log(f"  ERROR: {exc}")
-
-    except Exception as exc:
-        log(f"Could not inspect select elements: {exc}")
-
-
-# ============================================================
-# INTERNATIONAL TAB DETECTION
-# ============================================================
-
-async def inspect_possible_tabs(frame):
-    section("INSPECTING TAB CONTROLS")
-
-    candidates = []
-
-    # Text-based candidates.
-    try:
-        all_elements = frame.locator("text=Međunarodni promet")
-        count = await all_elements.count()
-
-        log(f"text=Međunarodni promet -> {count}")
-
-        for i in range(count):
-            element = all_elements.nth(i)
-
-            try:
-                tag = await element.evaluate(
-                    "(el) => el.tagName"
-                )
-
-                outer = await element.evaluate(
-                    "(el) => el.outerHTML"
-                )
-
-                candidates.append(element)
-
-                log("")
-                log(f"TEXT CANDIDATE #{i}")
-                log(f"  tag: {tag}")
-                log(f"  html: {outer[:2000]}")
-
-            except Exception as exc:
-                log(f"Could not inspect candidate #{i}: {exc}")
-
-    except Exception as exc:
-        log(f"Text search failed: {exc}")
-
-    # Search HTML directly.
-    try:
-        html = await frame.content()
-
-        matches = list(
-            re.finditer(
-                r"Međunarodni\s+promet",
-                html,
-                flags=re.IGNORECASE,
-            )
-        )
-
-        log("")
-        log(f"Raw HTML occurrences of 'Međunarodni promet': {len(matches)}")
-
-        for i, match in enumerate(matches[:20]):
-            start = max(0, match.start() - 1000)
-            end = min(len(html), match.end() + 1500)
-
-            snippet = html[start:end]
-
-            log("")
-            log(f"RAW HTML MATCH #{i}")
-            log(snippet)
-
-    except Exception as exc:
-        log(f"Could not inspect raw HTML: {exc}")
-
-    return candidates
-
-
-async def click_international_tab(frame):
     section("ACTIVATING MEĐUNARODNI PROMET")
 
-    # First inspect the page so we know exactly what markup exists.
-    await inspect_possible_tabs(frame)
-
-    # --------------------------------------------------------
-    # Strategy 1:
-    # Search links, spans, divs, labels and table cells
-    # containing the exact visible text.
-    # --------------------------------------------------------
-
-    selectors = [
-        "a",
-        "span",
-        "div",
-        "td",
-        "label",
-        "li",
-        "img",
-        "input",
+    # First look for exact text in the calculator frame.
+    candidates = [
+        frame.get_by_text("Međunarodni promet", exact=True),
+        frame.get_by_text("Međunarodni promet"),
     ]
 
-    for selector in selectors:
-
+    for locator in candidates:
         try:
-            elements = frame.locator(selector)
-
-            count = await elements.count()
+            count = await locator.count()
+            print(f"Text candidate count: {count}")
 
             for i in range(count):
-                element = elements.nth(i)
+                item = locator.nth(i)
 
                 try:
-                    text = normalize_text(
-                        await element.inner_text(
-                            timeout=1000
+                    if await item.is_visible():
+                        print("Found visible Međunarodni promet element.")
+                        print("Tag:", await item.evaluate("(e) => e.tagName"))
+                        print(
+                            "HTML:",
+                            (await item.evaluate("(e) => e.outerHTML"))[:2000],
                         )
-                    )
 
-                except Exception:
-                    text = ""
+                        await item.click(force=True)
 
-                if "Međunarodni promet" not in text:
-                    continue
+                        await frame.wait_for_timeout(2500)
 
-                log("")
-                log(
-                    f"Potential tab found: {selector} #{i}"
-                )
-                log(f"Visible text: {text[:500]}")
-
-                try:
-                    html = await element.evaluate(
-                        "(el) => el.outerHTML"
-                    )
-
-                    log(f"HTML: {html[:3000]}")
-
-                except Exception:
-                    pass
-
-                try:
-                    await element.click(
-                        timeout=5000,
-                        force=True,
-                    )
-
-                    log(
-                        f"Clicked potential international tab: "
-                        f"{selector} #{i}"
-                    )
-
-                    await frame.wait_for_timeout(1500)
-
-                    if await international_controls_exist(frame):
-                        log(
-                            "International controls appeared."
-                        )
                         return True
 
                 except Exception as exc:
-                    log(
-                        f"Click failed for "
-                        f"{selector} #{i}: {exc}"
-                    )
+                    print(f"Candidate {i} failed: {exc}")
 
-    # --------------------------------------------------------
-    # Strategy 2:
-    # Search every element whose text contains the phrase.
-    # --------------------------------------------------------
+        except Exception as exc:
+            print(f"Text locator failed: {exc}")
+
+    # ASPx controls may not expose the visible text as a simple element.
+    # Search the DOM for anything containing the text.
+    print("Searching DOM for Međunarodni promet...")
 
     try:
-        elements = frame.locator(
-            "xpath=//*[contains(normalize-space(.), "
-            "'Međunarodni promet')]"
-        )
+        matches = await frame.locator(
+            "xpath=//*[contains(normalize-space(.), 'Međunarodni promet')]"
+        ).count()
 
-        count = await elements.count()
+        print(f"DOM matches: {matches}")
 
-        log("")
-        log(
-            f"XPath international candidates: {count}"
-        )
-
-        for i in range(count):
-            element = elements.nth(i)
+        for i in range(min(matches, 30)):
+            item = frame.locator(
+                "xpath=//*[contains(normalize-space(.), 'Međunarodni promet')]"
+            ).nth(i)
 
             try:
-                tag = await element.evaluate(
-                    "(el) => el.tagName"
-                )
+                if not await item.is_visible():
+                    continue
 
-                html = await element.evaluate(
-                    "(el) => el.outerHTML"
-                )
+                tag = await item.evaluate("(e) => e.tagName")
+                text = clean_text(await item.inner_text())
+                html = (await item.evaluate("(e) => e.outerHTML"))[:3000]
 
-                log("")
-                log(f"XPath candidate #{i}")
-                log(f"Tag: {tag}")
-                log(f"HTML: {html[:3000]}")
+                print(f"DOM candidate {i}:")
+                print(f"  tag: {tag}")
+                print(f"  text: {text}")
+                print(f"  html: {html}")
 
-                await element.click(
-                    timeout=5000,
-                    force=True,
-                )
+                await item.click(force=True)
+                await frame.wait_for_timeout(2500)
 
-                await frame.wait_for_timeout(1500)
-
-                if await international_controls_exist(frame):
-                    log(
-                        "International controls appeared "
-                        "after XPath click."
-                    )
-                    return True
+                return True
 
             except Exception as exc:
-                log(
-                    f"XPath candidate #{i} failed: {exc}"
-                )
+                print(f"DOM candidate {i} failed: {exc}")
 
     except Exception as exc:
-        log(f"XPath search failed: {exc}")
-
-    # --------------------------------------------------------
-    # Strategy 3:
-    # Look for ASP.NET / DevExpress tab controls.
-    #
-    # The diagnostic HTML showed:
-    # ASPxTabControl1
-    #
-    # Therefore inspect elements around that identifier.
-    # --------------------------------------------------------
-
-    try:
-        html = await frame.content()
-
-        for needle in [
-            "ASPxTabControl1",
-            "ASPxTabControl",
-            "TabControl",
-            "International",
-            "Međunarodni",
-        ]:
-
-            positions = [
-                m.start()
-                for m in re.finditer(
-                    re.escape(needle),
-                    html,
-                    flags=re.IGNORECASE,
-                )
-            ]
-
-            if positions:
-                log("")
-                log(
-                    f"HTML occurrences of {needle!r}: "
-                    f"{len(positions)}"
-                )
-
-                for pos in positions[:10]:
-                    start = max(0, pos - 1500)
-                    end = min(
-                        len(html),
-                        pos + 3000,
-                    )
-
-                    log(html[start:end])
-
-    except Exception as exc:
-        log(
-            f"Could not inspect DevExpress markup: {exc}"
-        )
+        print(f"DOM search failed: {exc}")
 
     return False
 
 
-# ============================================================
-# INTERNATIONAL CONTROL DETECTION
-# ============================================================
-
-async def international_controls_exist(frame):
+async def find_country_select(frame):
     """
-    The international destination dropdown is expected to be:
+    Search for the international destination dropdown.
 
-        #ddlMeDoOdrediste
+    Expected ID from the original HTML supplied by the user:
+        ddlMeDoOdrediste
     """
 
-    try:
-        return (
-            await frame.locator(
-                "#ddlMeDoOdrediste"
-            ).count()
-            > 0
-        )
+    selectors = [
+        "#ddlMeDoOdrediste",
+        "select[name='ddlMeDoOdrediste']",
+        "select[id*='MeDoOdrediste']",
+        "select[name*='Odrediste']",
+        "select[id*='Odrediste']",
+    ]
 
-    except Exception:
-        return False
+    for selector in selectors:
+        try:
+            locator = frame.locator(selector)
+            count = await locator.count()
+
+            if count:
+                print(f"FOUND COUNTRY DROPDOWN: {selector}")
+                return locator.first
+
+        except Exception as exc:
+            print(f"Selector {selector} failed: {exc}")
+
+    return None
 
 
-# ============================================================
-# COUNTRY EXTRACTION
-# ============================================================
-
-async def extract_countries(frame):
-    section("EXTRACTING DESTINATION COUNTRIES")
-
-    selector = "#ddlMeDoOdrediste"
-
-    dropdown = frame.locator(selector)
-
-    count = await dropdown.count()
-
-    log(
-        f"{selector} count: {count}"
-    )
-
-    if count == 0:
-        raise RuntimeError(
-            "International destination dropdown "
-            "#ddlMeDoOdrediste was not found."
-        )
-
-    option_locator = dropdown.locator("option")
-
-    option_count = await option_locator.count()
-
-    log(
-        f"Number of country options: {option_count}"
+async def get_country_options(select):
+    options = await select.locator("option").evaluate_all(
+        """
+        options => options.map(o => ({
+            value: o.value,
+            text: (o.textContent || '').trim()
+        }))
+        """
     )
 
     countries = []
 
-    for i in range(option_count):
-        option = option_locator.nth(i)
+    for option in options:
+        name = clean_text(option.get("text", ""))
 
-        value = await option.get_attribute("value")
-        text = normalize_text(
-            await option.inner_text()
-        )
-
-        if not text:
-            continue
-
-        countries.append(
-            {
-                "index": i,
-                "value": value or "",
-                "name": text,
-            }
-        )
-
-        log(
-            f"[{i:03}] value={value!r} name={text}"
-        )
-
-    if not countries:
-        raise RuntimeError(
-            "Country dropdown exists but contains "
-            "no options."
-        )
+        if name:
+            countries.append(
+                {
+                    "name": name,
+                    "value": option.get("value", ""),
+                }
+            )
 
     return countries
 
 
-# ============================================================
-# SELECT POSTCARD
-# ============================================================
-
-async def select_postcard(frame):
-    section("SELECTING DOPISNICA / POSTCARD")
-
-    # The diagnostic showed:
-    #
-    # ImageButton4
-    # title="Dopisnica"
-    #
-    # This is the calculator's postcard icon.
-
-    selectors = [
-        "#ImageButton4",
-        "input[title='Dopisnica']",
-        "img[title='Dopisnica']",
-        "[title='Dopisnica']",
-    ]
-
-    for selector in selectors:
-
-        try:
-            locator = frame.locator(selector)
-
-            count = await locator.count()
-
-            log(
-                f"{selector:35} -> {count}"
-            )
-
-            if count == 0:
-                continue
-
-            element = locator.first
-
-            try:
-                await element.click(
-                    timeout=5000,
-                    force=True,
-                )
-
-                await frame.wait_for_timeout(1000)
-
-                log(
-                    f"Clicked postcard control: {selector}"
-                )
-
-                return True
-
-            except Exception as exc:
-                log(
-                    f"Click failed: {exc}"
-                )
-
-        except Exception as exc:
-            log(
-                f"Selector error: {selector}: {exc}"
-            )
-
-    # Fallback: find an element by title.
-    try:
-        elements = frame.locator(
-            "[title]"
-        )
-
-        count = await elements.count()
-
-        for i in range(count):
-
-            element = elements.nth(i)
-
-            title = await element.get_attribute(
-                "title"
-            )
-
-            if title and title.strip().lower() == "dopisnica":
-
-                log(
-                    "Found fallback title='Dopisnica'"
-                )
-
-                await element.click(
-                    timeout=5000,
-                    force=True,
-                )
-
-                await frame.wait_for_timeout(1000)
-
-                return True
-
-    except Exception as exc:
-        log(
-            f"Fallback postcard detection failed: {exc}"
-        )
-
-    return False
-
-
-# ============================================================
-# AIR TRANSPORT
-# ============================================================
-
-async def enable_air_transport(frame):
-    section("ENABLING AVIONSKI PRIJENOS")
-
+async def find_checkbox(frame):
     selectors = [
         "#chbMeDoAvionski",
         "input[name='chbMeDoAvionski']",
-        "input[type='checkbox']",
+        "input[id*='MeDoAvionski']",
+        "input[name*='Avionski']",
     ]
 
-    # First try the exact expected selector.
     for selector in selectors:
-
         try:
             locator = frame.locator(selector)
 
-            count = await locator.count()
+            if await locator.count():
+                print(f"FOUND AIR checkbox: {selector}")
+                return locator.first
 
-            log(
-                f"{selector:40} -> {count}"
-            )
+        except Exception:
+            pass
 
-            if count == 0:
-                continue
-
-            # For the generic checkbox selector, find one
-            # whose surrounding text refers to Avionski prijenos.
-            if selector == "input[type='checkbox']":
-
-                matched = None
-
-                for i in range(count):
-
-                    candidate = locator.nth(i)
-
-                    try:
-                        candidate_id = (
-                            await candidate.get_attribute(
-                                "id"
-                            )
-                        )
-
-                        candidate_name = (
-                            await candidate.get_attribute(
-                                "name"
-                            )
-                        )
-
-                        outer = await candidate.evaluate(
-                            "(el) => el.parentElement.outerHTML"
-                        )
-
-                        combined = (
-                            f"{candidate_id or ''} "
-                            f"{candidate_name or ''} "
-                            f"{outer or ''}"
-                        ).lower()
-
-                        if (
-                            "avionski" in combined
-                            or "avio" in combined
-                        ):
-                            matched = candidate
-                            break
-
-                    except Exception:
-                        continue
-
-                if matched is None:
-                    continue
-
-                element = matched
-
-            else:
-                element = locator.first
-
-            try:
-                if not await element.is_checked():
-                    await element.check(
-                        timeout=5000,
-                        force=True,
-                    )
-
-                    await frame.wait_for_timeout(
-                        1000
-                    )
-
-                    log(
-                        "Avionski prijenos enabled."
-                    )
-
-                else:
-                    log(
-                        "Avionski prijenos was already enabled."
-                    )
-
-                return True
-
-            except Exception as exc:
-
-                log(
-                    f"Checkbox operation failed: {exc}"
-                )
-
-        except Exception as exc:
-            log(
-                f"Selector error: {selector}: {exc}"
-            )
-
-    return False
+    return None
 
 
-# ============================================================
-# WEIGHT
-# ============================================================
-
-async def enter_weight(frame, grams="10"):
-    section("ENTERING AIR WEIGHT")
-
+async def find_weight_input(frame):
     selectors = [
         "#tbxMeDoAvioTezina",
         "input[name='tbxMeDoAvioTezina']",
+        "input[id*='MeDoAvioTezina']",
+        "input[name*='AvioTezina']",
     ]
 
     for selector in selectors:
-
         try:
             locator = frame.locator(selector)
 
-            count = await locator.count()
+            if await locator.count():
+                print(f"FOUND AIR WEIGHT INPUT: {selector}")
+                return locator.first
 
-            log(
-                f"{selector:40} -> {count}"
-            )
+        except Exception:
+            pass
 
-            if count == 0:
-                continue
-
-            await locator.first.fill(
-                str(grams)
-            )
-
-            await frame.wait_for_timeout(500)
-
-            value = await locator.first.input_value()
-
-            log(
-                f"Weight field value: {value}"
-            )
-
-            if value == str(grams):
-                return True
-
-        except Exception as exc:
-            log(
-                f"Weight entry failed: {exc}"
-            )
-
-    return False
+    return None
 
 
-# ============================================================
-# CALCULATE
-# ============================================================
-
-async def click_calculate(frame):
-    section("CLICKING IZRAČUNAJ")
-
+async def find_calculate_button(frame):
     selectors = [
         "#btnMeDoIzracunaj",
         "input[name='btnMeDoIzracunaj']",
-        "input[type='submit'][value='Izračunaj']",
-        "input.dugme[value='Izračunaj']",
+        "input[value='Izračunaj']",
+        "input[type='submit'][value*='Izračunaj']",
+        "input[type='submit']",
     ]
 
     for selector in selectors:
-
         try:
             locator = frame.locator(selector)
-
             count = await locator.count()
 
-            log(
-                f"{selector:45} -> {count}"
-            )
+            if count:
+                print(f"FOUND CALCULATE CONTROL: {selector}")
 
-            if count == 0:
-                continue
+                for i in range(count):
+                    candidate = locator.nth(i)
 
-            await locator.first.click(
-                timeout=10000,
-                force=True,
-            )
+                    try:
+                        if await candidate.is_visible():
+                            return candidate
+                    except Exception:
+                        pass
 
-            log(
-                f"Clicked calculate button: {selector}"
-            )
+                return locator.first
 
-            # ASP.NET postback / update.
-            await frame.wait_for_timeout(2000)
+        except Exception:
+            pass
 
+    return None
+
+
+async def error_message_present(frame):
+    try:
+        body_text = clean_text(await frame.locator("body").inner_text())
+
+        if ERROR_TEXT in body_text:
             return True
 
-        except Exception as exc:
-            log(
-                f"Calculate click failed: {exc}"
-            )
+    except Exception:
+        pass
 
-    # Last-resort search for submit inputs whose value is
-    # Izračunaj.
+    # Also inspect HTML, because the message may be in a hidden/updated
+    # ASP.NET element whose text isn't immediately represented in body text.
     try:
-        submits = frame.locator(
-            "input[type='submit']"
-        )
+        html = await frame.content()
 
-        count = await submits.count()
+        if ERROR_TEXT in html:
+            return True
 
-        for i in range(count):
-
-            element = submits.nth(i)
-
-            value = await element.get_attribute(
-                "value"
-            )
-
-            if normalize_text(value) == "Izračunaj":
-
-                await element.click(
-                    timeout=10000,
-                    force=True,
-                )
-
-                await frame.wait_for_timeout(2000)
-
-                log(
-                    "Clicked fallback Izračunaj submit."
-                )
-
-                return True
-
-    except Exception as exc:
-        log(
-            f"Fallback calculate failed: {exc}"
-        )
+    except Exception:
+        pass
 
     return False
 
 
-# ============================================================
-# ERROR DETECTION
-# ============================================================
-
-async def get_frame_text(frame):
-    try:
-        return normalize_text(
-            await frame.locator("body").inner_text()
-        )
-    except Exception:
-        return ""
-
-
-async def error_message_present(frame):
-    text = await get_frame_text(frame)
-
-    return ERROR_MESSAGE.lower() in text.lower()
-
-
-async def find_error_text(frame):
+async def wait_for_result(frame):
     """
-    Return the actual text surrounding the error message.
+    Give ASP.NET postback/update-panel processing time to complete.
     """
 
-    try:
-        body_text = await frame.locator(
-            "body"
-        ).inner_text()
+    for _ in range(20):
+        await frame.wait_for_timeout(500)
 
-        normalized = normalize_text(body_text)
+        if await error_message_present(frame):
+            return True
 
-        position = normalized.lower().find(
-            ERROR_MESSAGE.lower()
-        )
-
-        if position < 0:
-            return ""
-
-        start = max(
-            0,
-            position - 150,
-        )
-
-        end = min(
-            len(normalized),
-            position + len(ERROR_MESSAGE) + 300,
-        )
-
-        return normalized[start:end]
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# COUNTRY TESTING
-# ============================================================
-
-async def test_country(
-    frame,
-    country,
-    index,
-    total,
-):
-    name = country["name"]
-    value = country["value"]
-
-    print()
-    print(
-        f"[{index}/{total}] Testing: "
-        f"{name} ({value})"
-    )
-
-    diagnostic_lines.append(
-        f"[{index}/{total}] Testing: "
-        f"{name} ({value})"
-    )
-
-    dropdown = frame.locator(
-        "#ddlMeDoOdrediste"
-    )
-
-    # --------------------------------------------------------
-    # Select destination.
-    # --------------------------------------------------------
-
-    try:
-        await dropdown.select_option(
-            value=value
-        )
-
-    except Exception as exc:
-
-        log(
-            f"Could not select {name} by value: "
-            f"{exc}"
-        )
-
+        # If a visible price/result appeared, stop waiting.
         try:
-            await dropdown.select_option(
-                label=name
-            )
+            text = clean_text(await frame.locator("body").inner_text())
 
-        except Exception as exc2:
+            price_patterns = [
+                r"\d+,\d+\s*KM",
+                r"\d+\.\d+\s*KM",
+                r"\d+\s*KM",
+            ]
 
-            log(
-                f"Could not select {name} by label: "
-                f"{exc2}"
-            )
+            if any(re.search(pattern, text, re.I) for pattern in price_patterns):
+                return False
 
-            return {
-                "name": name,
-                "value": value,
-                "status": "SELECT_FAILED",
-            }
+        except Exception:
+            pass
 
-    await frame.wait_for_timeout(800)
-
-    # --------------------------------------------------------
-    # Ensure postcard.
-    #
-    # Some ASP.NET controls can reset after a postback.
-    # --------------------------------------------------------
-
-    try:
-        await select_postcard(frame)
-    except Exception:
-        pass
-
-    # --------------------------------------------------------
-    # Ensure air transport.
-    # --------------------------------------------------------
-
-    try:
-        air_ok = await enable_air_transport(frame)
-
-        if not air_ok:
-            log(
-                "WARNING: Could not confirm "
-                "Avionski prijenos."
-            )
-
-    except Exception as exc:
-        log(
-            f"Air transport error: {exc}"
-        )
-
-    # --------------------------------------------------------
-    # Enter 10 grams.
-    # --------------------------------------------------------
-
-    try:
-        weight_ok = await enter_weight(
-            frame,
-            "10",
-        )
-
-        if not weight_ok:
-            log(
-                "WARNING: Could not confirm "
-                "10 g weight."
-            )
-
-    except Exception as exc:
-        log(
-            f"Weight error: {exc}"
-        )
-
-    # --------------------------------------------------------
-    # Click calculate.
-    # --------------------------------------------------------
-
-    try:
-        calculate_ok = await click_calculate(
-            frame
-        )
-
-        if not calculate_ok:
-
-            log(
-                "ERROR: Could not click Izračunaj."
-            )
-
-            return {
-                "name": name,
-                "value": value,
-                "status": "CALCULATE_FAILED",
-            }
-
-    except Exception as exc:
-
-        log(
-            f"Calculate error: {exc}"
-        )
-
-        return {
-            "name": name,
-            "value": value,
-            "status": "CALCULATE_FAILED",
-        }
-
-    # --------------------------------------------------------
-    # Give the ASP.NET application time to update.
-    # --------------------------------------------------------
-
-    await frame.wait_for_timeout(1500)
-
-    # --------------------------------------------------------
-    # Check error.
-    # --------------------------------------------------------
-
-    try:
-        has_error = await error_message_present(
-            frame
-        )
-
-        if has_error:
-
-            context = await find_error_text(
-                frame
-            )
-
-            print(
-                f"  -> UNAVAILABLE"
-            )
-
-            diagnostic_lines.append(
-                f"  -> UNAVAILABLE"
-            )
-
-            if context:
-                diagnostic_lines.append(
-                    f"     {context}"
-                )
-
-            return {
-                "name": name,
-                "value": value,
-                "status": "UNAVAILABLE",
-            }
-
-        else:
-
-            print(
-                f"  -> AVAILABLE / NO ERROR"
-            )
-
-            diagnostic_lines.append(
-                f"  -> AVAILABLE / NO ERROR"
-            )
-
-            return {
-                "name": name,
-                "value": value,
-                "status": "AVAILABLE",
-            }
-
-    except Exception as exc:
-
-        log(
-            f"Error-message check failed: {exc}"
-        )
-
-        return {
-            "name": name,
-            "value": value,
-            "status": "CHECK_FAILED",
-        }
+    return await error_message_present(frame)
 
 
-# ============================================================
-# WRITE COUNTRIES.TXT
-# ============================================================
+async def write_countries_file(all_countries, unavailable):
+    """
+    Output format:
 
-def write_countries_file(
-    countries,
-    unavailable,
-):
-    section("WRITING COUNTRIES.TXT")
+    ALL COUNTRIES
+    -------------
+    Afganistan
+    Albanija
+    ...
+
+    UNAVAILABLE COUNTRIES
+    ---------------------
+    ...
+    """
 
     lines = []
 
-    lines.append(
-        "JP BH POŠTA - DESTINATION COUNTRY MONITOR"
-    )
-    lines.append(
-        "Generated automatically by GitHub Actions."
-    )
-    lines.append(
-        "Original dropdown order is preserved."
-    )
-    lines.append("")
+    lines.append("ALL COUNTRIES")
+    lines.append("=============")
 
-    lines.append(
-        "ALL DESTINATION COUNTRIES"
-    )
-    lines.append(
-        "========================="
-    )
-
-    for country in countries:
-        lines.append(
-            country["name"]
-        )
+    for country in all_countries:
+        lines.append(country)
 
     lines.append("")
+    lines.append("UNAVAILABLE COUNTRIES")
+    lines.append("=====================")
 
-    lines.append(
-        "COUNTRIES SHOWING:"
-    )
-    lines.append(
-        ERROR_MESSAGE
-    )
-    lines.append(
-        "=================================================="
-    )
-
-    unavailable_names = {
-        item["name"]
-        for item in unavailable
-    }
-
-    # Preserve dropdown order.
-    for country in countries:
-
-        if country["name"] in unavailable_names:
-
-            lines.append(
-                country["name"]
-            )
+    for country in unavailable:
+        lines.append(country)
 
     lines.append("")
-
-    lines.append(
-        f"TOTAL DESTINATIONS: {len(countries)}"
-    )
-
-    lines.append(
-        f"TOTAL UNAVAILABLE: {len(unavailable)}"
-    )
 
     COUNTRIES_FILE.write_text(
-        "\n".join(lines) + "\n",
+        "\n".join(lines),
         encoding="utf-8",
     )
 
-    log(
-        f"Saved {COUNTRIES_FILE} "
-        f"({len(lines):,} lines)"
-    )
 
+async def diagnostic_snapshot(frame, filename="diagnostic.png"):
+    try:
+        await frame.screenshot(
+            path=filename,
+            full_page=True,
+        )
+        print(f"Screenshot saved: {filename}")
+    except Exception as exc:
+        print(f"Could not save screenshot: {exc}")
 
-# ============================================================
-# MAIN
-# ============================================================
 
 async def main():
+    section("JP BH POŠTA CALCULATOR MONITOR")
 
-    section(
-        "JP BH POŠTA CALCULATOR MONITOR"
-    )
-
-    log(f"URL: {URL}")
+    print(f"URL: {URL}")
 
     if not URL:
-        raise RuntimeError(
-            "CALCULATOR_URL is empty."
-        )
+        raise RuntimeError("CALCULATOR_URL is empty")
 
     async with async_playwright() as p:
 
@@ -1313,8 +411,6 @@ async def main():
             headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
             ],
         )
 
@@ -1324,494 +420,388 @@ async def main():
                 "height": 1200,
             },
             locale="hr-HR",
-            timezone_id="Europe/Sarajevo",
         )
 
         page = await context.new_page()
 
-        page.set_default_timeout(
-            TIMEOUT
-        )
-
-        # ----------------------------------------------------
-        # OPEN MAIN PAGE
-        # ----------------------------------------------------
+        # ------------------------------------------------------------
+        # MAIN PAGE
+        # ------------------------------------------------------------
 
         section("OPENING MAIN PAGE")
-
-        log("Opening page...")
 
         response = await page.goto(
             URL,
             wait_until="domcontentloaded",
-            timeout=60_000,
+            timeout=60000,
         )
 
-        if response:
-            log(
-                f"HTTP status: "
-                f"{response.status}"
-            )
+        print(f"HTTP status: {response.status if response else 'unknown'}")
+        print(f"Final URL: {page.url}")
+        print(f"Page title: {await page.title()}")
 
-        await page.wait_for_timeout(
-            3000
-        )
+        await page.wait_for_timeout(5000)
 
-        log(
-            f"Final URL: {page.url}"
-        )
-
-        log(
-            f"Page title: {await page.title()}"
-        )
-
-        # ----------------------------------------------------
-        # SAVE MAIN PAGE
-        # ----------------------------------------------------
-
+        # Save main page.
         try:
             html = await page.content()
-
-            PAGE_HTML.write_text(
-                html,
-                encoding="utf-8",
-            )
-
-            log(
-                f"Saved: page.html "
-                f"({len(html):,} bytes)"
-            )
-
+            await save_text("page.html", html)
+            print(f"Saved: page.html ({len(html):,} bytes)")
         except Exception as exc:
-            log(
-                f"Could not save page.html: {exc}"
-            )
+            print(f"Could not save page.html: {exc}")
 
-        # ----------------------------------------------------
-        # WAIT FOR IFRAMES
-        # ----------------------------------------------------
+        # ------------------------------------------------------------
+        # FIND REAL CALCULATOR FRAME
+        # ------------------------------------------------------------
 
-        section("LOCATING CALCULATOR IFRAME")
+        frame = await find_calculator_frame(page)
 
-        # Give iframe loading some time.
-        await page.wait_for_timeout(
-            5000
-        )
+        if frame is None:
+            section("CALCULATOR IFRAME NOT FOUND")
 
-        calculator_frame = None
-
-        # Try repeatedly because the calculator iframe can
-        # appear after the main page loads.
-        for attempt in range(10):
-
-            log(
-                f"Frame search attempt "
-                f"{attempt + 1}/10"
-            )
-
-            calculator_frame = (
-                await find_calculator_frame(page)
-            )
-
-            if calculator_frame:
-                break
-
-            await page.wait_for_timeout(
-                2000
-            )
-
-        if calculator_frame is None:
-
-            # Save screenshot before failing.
-            try:
-                await page.screenshot(
-                    path=str(SCREENSHOT),
-                    full_page=True,
-                )
-
-                log(
-                    f"Screenshot saved to: "
-                    f"{SCREENSHOT}"
-                )
-
-            except Exception:
-                pass
-
-            save_diagnostic()
-
-            raise RuntimeError(
-                "Could not find the actual calculator "
-                "iframe. Expected a frame whose URL "
-                f"contains {CALCULATOR_FRAME_HOST}"
-                f"{CALCULATOR_FRAME_PATH}"
-            )
-
-        # ----------------------------------------------------
-        # WAIT FOR ACTUAL CALCULATOR DOCUMENT
-        # ----------------------------------------------------
-
-        section(
-            "WAITING FOR CALCULATOR IFRAME"
-        )
-
-        try:
-            await calculator_frame.wait_for_load_state(
-                "domcontentloaded",
-                timeout=30_000,
-            )
-
-        except Exception as exc:
-            log(
-                f"Calculator frame load-state warning: "
-                f"{exc}"
-            )
-
-        await page.wait_for_timeout(
-            2000
-        )
-
-        log(
-            f"Calculator URL: "
-            f"{calculator_frame.url}"
-        )
-
-        # ----------------------------------------------------
-        # SAVE CALCULATOR HTML
-        # ----------------------------------------------------
-
-        await save_frame(
-            calculator_frame
-        )
-
-        # ----------------------------------------------------
-        # INITIAL CONTROL DIAGNOSTICS
-        # ----------------------------------------------------
-
-        section(
-            "INITIAL CALCULATOR CONTROLS"
-        )
-
-        await dump_controls(
-            calculator_frame
-        )
-
-        # ----------------------------------------------------
-        # ACTIVATE INTERNATIONAL
-        # ----------------------------------------------------
-
-        international_ok = (
-            await click_international_tab(
-                calculator_frame
-            )
-        )
-
-        if not international_ok:
-
-            # Save current state.
-            try:
-                html = await calculator_frame.content()
-
-                IFRAME_HTML.write_text(
-                    html,
-                    encoding="utf-8",
-                )
-
-            except Exception:
-                pass
-
-            try:
-                await page.screenshot(
-                    path=str(SCREENSHOT),
-                    full_page=True,
-                )
-
-            except Exception:
-                pass
-
-            save_diagnostic()
-
-            raise RuntimeError(
-                "Could not activate Međunarodni promet "
-                "or the international controls did not "
-                "appear. See iframe.html and "
-                "diagnostic.png."
-            )
-
-        # ----------------------------------------------------
-        # WAIT FOR INTERNATIONAL CONTROLS
-        # ----------------------------------------------------
-
-        section(
-            "WAITING FOR INTERNATIONAL CONTROLS"
-        )
-
-        try:
-
-            await calculator_frame.wait_for_selector(
-                "#ddlMeDoOdrediste",
-                timeout=30_000,
-            )
-
-        except PlaywrightTimeoutError:
-
-            # Save everything useful.
-            await save_frame(
-                calculator_frame
-            )
-
-            await dump_controls(
-                calculator_frame
-            )
-
-            try:
-                await page.screenshot(
-                    path=str(SCREENSHOT),
-                    full_page=True,
-                )
-            except Exception:
-                pass
-
-            save_diagnostic()
-
-            raise RuntimeError(
-                "International destination dropdown "
-                "#ddlMeDoOdrediste did not appear."
-            )
-
-        # ----------------------------------------------------
-        # INTERNATIONAL CONTROLS FOUND
-        # ----------------------------------------------------
-
-        section(
-            "INTERNATIONAL CONTROLS FOUND"
-        )
-
-        await dump_controls(
-            calculator_frame
-        )
-
-        # ----------------------------------------------------
-        # EXTRACT COUNTRIES
-        # ----------------------------------------------------
-
-        countries = await extract_countries(
-            calculator_frame
-        )
-
-        log("")
-        log(
-            f"TOTAL COUNTRIES FOUND: "
-            f"{len(countries)}"
-        )
-
-        # ----------------------------------------------------
-        # WRITE INITIAL COUNTRY LIST.
-        #
-        # This ensures that even if testing fails later,
-        # the raw dropdown list is preserved.
-        # ----------------------------------------------------
-
-        write_countries_file(
-            countries,
-            [],
-        )
-
-        # ----------------------------------------------------
-        # SELECT DOPISNICA
-        # ----------------------------------------------------
-
-        postcard_ok = await select_postcard(
-            calculator_frame
-        )
-
-        if not postcard_ok:
-
-            log(
-                "WARNING: Could not explicitly "
-                "select Dopisnica."
-            )
-
-        # ----------------------------------------------------
-        # ENABLE AIR TRANSPORT
-        # ----------------------------------------------------
-
-        air_ok = await enable_air_transport(
-            calculator_frame
-        )
-
-        if not air_ok:
-
-            log(
-                "WARNING: Could not explicitly "
-                "enable Avionski prijenos."
-            )
-
-        # ----------------------------------------------------
-        # ENTER WEIGHT
-        # ----------------------------------------------------
-
-        weight_ok = await enter_weight(
-            calculator_frame,
-            "10",
-        )
-
-        if not weight_ok:
-
-            log(
-                "WARNING: Could not explicitly "
-                "enter 10 grams."
-            )
-
-        # ----------------------------------------------------
-        # TEST COUNTRIES
-        # ----------------------------------------------------
-
-        section(
-            "TESTING ALL DESTINATION COUNTRIES"
-        )
-
-        unavailable = []
-        results = []
-
-        total = len(countries)
-
-        for position, country in enumerate(
-            countries,
-            start=1,
-        ):
-
-            result = await test_country(
-                calculator_frame,
-                country,
-                position,
-                total,
-            )
-
-            results.append(
-                result
-            )
-
-            if result["status"] == "UNAVAILABLE":
-                unavailable.append(
-                    result
-                )
-
-        # ----------------------------------------------------
-        # WRITE FINAL COUNTRIES FILE
-        # ----------------------------------------------------
-
-        write_countries_file(
-            countries,
-            unavailable,
-        )
-
-        # ----------------------------------------------------
-        # FINAL DIAGNOSTICS
-        # ----------------------------------------------------
-
-        section(
-            "FINAL SUMMARY"
-        )
-
-        log(
-            f"Total destinations: "
-            f"{len(countries)}"
-        )
-
-        log(
-            f"Unavailable destinations: "
-            f"{len(unavailable)}"
-        )
-
-        log("")
-        log(
-            "UNAVAILABLE COUNTRIES"
-        )
-
-        for country in unavailable:
-            log(
-                f"  {country['name']} "
-                f"({country['value']})"
-            )
-
-        # Save current calculator HTML.
-        try:
-            html = await calculator_frame.content()
-
-            DIAGNOSTIC_HTML.write_text(
-                html,
-                encoding="utf-8",
-            )
-
-            log(
-                f"Saved: diagnostic.html "
-                f"({len(html):,} bytes)"
-            )
-
-        except Exception as exc:
-            log(
-                f"Could not save diagnostic.html: "
-                f"{exc}"
-            )
-
-        # Screenshot.
-        try:
+            for i, f in enumerate(page.frames):
+                print(i, f.url)
 
             await page.screenshot(
-                path=str(SCREENSHOT),
+                path="diagnostic.png",
                 full_page=True,
             )
 
-            log(
-                f"Screenshot saved to: "
-                f"{SCREENSHOT}"
+            raise RuntimeError(
+                "Could not find the bhpwebout.posta.ba calculator iframe."
             )
 
-        except Exception as exc:
+        # Give iframe scripts time to initialize.
+        await frame.wait_for_timeout(3000)
 
-            log(
-                f"Screenshot failed: {exc}"
+        # ------------------------------------------------------------
+        # SAVE IFRAME
+        # ------------------------------------------------------------
+
+        section("SAVING CALCULATOR IFRAME")
+
+        iframe_html, iframe_text = await dump_frame(
+            frame,
+            "iframe.html",
+            "iframe.txt",
+        )
+
+        print(f"Saved iframe.html ({len(iframe_html):,} bytes)")
+        print(f"Saved iframe.txt ({len(iframe_text):,} bytes)")
+
+        # ------------------------------------------------------------
+        # IMPORTANT:
+        # DO NOT USE FRAME 0.
+        # The real calculator is the external frame.
+        # ------------------------------------------------------------
+
+        section("CHECKING INITIAL CALCULATOR")
+
+        country_select = await find_country_select(frame)
+
+        if country_select is not None:
+            print(
+                "Country dropdown is already present before "
+                "activating international traffic."
+            )
+        else:
+            print(
+                "Country dropdown is not present yet. "
+                "Attempting to activate Međunarodni promet."
             )
 
-        save_diagnostic()
+        # ------------------------------------------------------------
+        # ACTIVATE INTERNATIONAL
+        # ------------------------------------------------------------
+
+        if country_select is None:
+
+            activated = await activate_international(frame)
+
+            if not activated:
+                await dump_frame(
+                    frame,
+                    "iframe_after_activation_failure.html",
+                    "iframe_after_activation_failure.txt",
+                )
+
+                await diagnostic_snapshot(frame)
+
+                raise RuntimeError(
+                    "Could not locate/click Međunarodni promet."
+                )
+
+            await frame.wait_for_timeout(3000)
+
+            country_select = await find_country_select(frame)
+
+        # ------------------------------------------------------------
+        # COUNTRY DROPDOWN
+        # ------------------------------------------------------------
+
+        section("LOCATING COUNTRY DROPDOWN")
+
+        if country_select is None:
+
+            # Save everything again after attempted activation.
+            await dump_frame(
+                frame,
+                "iframe_after_activation.html",
+                "iframe_after_activation.txt",
+            )
+
+            await diagnostic_snapshot(frame)
+
+            print()
+            print("Visible calculator text:")
+            try:
+                print(clean_text(await frame.locator("body").inner_text()))
+            except Exception:
+                pass
+
+            raise RuntimeError(
+                "International calculator activated, but "
+                "#ddlMeDoOdrediste was not found."
+            )
+
+        print("Country dropdown found.")
+
+        countries = await get_country_options(country_select)
+
+        section("COUNTRIES FOUND")
+
+        print(f"Number of countries/options: {len(countries)}")
+
+        for index, country in enumerate(countries, start=1):
+            print(
+                f"{index:3d}. "
+                f"{country['name']} "
+                f"(value={country['value']})"
+            )
+
+        if not countries:
+            raise RuntimeError(
+                "Country dropdown exists but contains no options."
+            )
+
+        # ------------------------------------------------------------
+        # AIR TRANSPORT
+        # ------------------------------------------------------------
+
+        section("SETTING AVIONSKI PRIJENOS")
+
+        air_checkbox = await find_checkbox(frame)
+
+        if air_checkbox is None:
+            print(
+                "Avionski Prijenos checkbox not found. "
+                "This may be because the current service type "
+                "does not expose it."
+            )
+        else:
+            try:
+                checked = await air_checkbox.is_checked()
+
+                if not checked:
+                    print("Checking Avionski Prijenos...")
+                    await air_checkbox.check(force=True)
+                    await frame.wait_for_timeout(1000)
+                else:
+                    print("Avionski Prijenos already checked.")
+
+            except Exception as exc:
+                print(f"Could not check Avionski Prijenos: {exc}")
+
+        weight_input = await find_weight_input(frame)
+
+        if weight_input is not None:
+            try:
+                await weight_input.fill("10")
+                print("Air weight set to 10 grams.")
+            except Exception as exc:
+                print(f"Could not enter weight: {exc}")
+        else:
+            print("Air weight input not found.")
+
+        # ------------------------------------------------------------
+        # CALCULATE
+        # ------------------------------------------------------------
+
+        calculate_button = await find_calculate_button(frame)
+
+        if calculate_button is None:
+            await dump_frame(
+                frame,
+                "iframe_before_calculation_failure.html",
+                "iframe_before_calculation_failure.txt",
+            )
+
+            await diagnostic_snapshot(frame)
+
+            raise RuntimeError(
+                "Could not find the international Izračunaj button."
+            )
+
+        print("Calculate control found.")
+
+        # ------------------------------------------------------------
+        # SCAN COUNTRIES IN ORIGINAL DROPDOWN ORDER
+        # ------------------------------------------------------------
+
+        section("CHECKING COUNTRIES")
+
+        unavailable = []
+
+        for index, country in enumerate(countries, start=1):
+
+            name = country["name"]
+            value = country["value"]
+
+            print()
+            print(
+                f"[{index}/{len(countries)}] "
+                f"{name} ({value})"
+            )
+
+            try:
+                # Re-find the select every iteration. ASP.NET postbacks
+                # can replace the DOM element.
+                select = await find_country_select(frame)
+
+                if select is None:
+                    print("ERROR: country dropdown disappeared.")
+
+                    await dump_frame(
+                        frame,
+                        "failure_dropdown_disappeared.html",
+                        "failure_dropdown_disappeared.txt",
+                    )
+
+                    raise RuntimeError(
+                        "Country dropdown disappeared during country scan."
+                    )
+
+                await select.select_option(value=value)
+
+                # ASP.NET onchange may perform a postback.
+                await frame.wait_for_timeout(1200)
+
+                # The DOM may have been replaced.
+                select = await find_country_select(frame)
+
+                if select is None:
+                    raise RuntimeError(
+                        "Country dropdown disappeared after selection."
+                    )
+
+                # Re-find calculation control too.
+                calculate_button = await find_calculate_button(frame)
+
+                if calculate_button is None:
+                    raise RuntimeError(
+                        "Calculate button disappeared after selecting "
+                        f"{name}."
+                    )
+
+                # Click and wait for the ASP.NET result.
+                print("  Clicking Izračunaj...")
+
+                try:
+                    await calculate_button.click(
+                        force=True,
+                        timeout=10000,
+                    )
+                except Exception as click_exc:
+                    print(f"  Normal click failed: {click_exc}")
+                    print("  Trying form submit...")
+
+                    await calculate_button.evaluate(
+                        "(element) => element.click()"
+                    )
+
+                has_error = await wait_for_result(frame)
+
+                if has_error:
+                    print(
+                        "  RESULT: UNAVAILABLE "
+                        f"('{ERROR_TEXT}')"
+                    )
+                    unavailable.append(name)
+                else:
+                    print("  RESULT: price/result returned")
+
+            except Exception as exc:
+                print(f"  ERROR while checking {name}: {exc}")
+
+                # Save diagnostic state but continue with remaining countries.
+                try:
+                    await frame.screenshot(
+                        path=f"diagnostic_country_{index}.png",
+                        full_page=True,
+                    )
+                except Exception:
+                    pass
+
+                # We do NOT automatically classify an unexpected
+                # technical failure as unavailable.
+                continue
+
+        # ------------------------------------------------------------
+        # WRITE OUTPUT
+        # ------------------------------------------------------------
+
+        section("WRITING COUNTRIES.TXT")
+
+        await write_countries_file(
+            [country["name"] for country in countries],
+            unavailable,
+        )
+
+        print(f"Saved: {COUNTRIES_FILE}")
+        print(f"All countries: {len(countries)}")
+        print(f"Unavailable countries: {len(unavailable)}")
+
+        # ------------------------------------------------------------
+        # FINAL DIAGNOSTIC
+        # ------------------------------------------------------------
+
+        section("FINAL RESULT")
+
+        print()
+        print("ALL COUNTRIES")
+        print("-------------")
+
+        for country in countries:
+            print(country["name"])
+
+        print()
+        print("UNAVAILABLE COUNTRIES")
+        print("---------------------")
+
+        for country in unavailable:
+            print(country)
+
+        await dump_frame(
+            frame,
+            "final_iframe.html",
+            "final_iframe.txt",
+        )
+
+        await diagnostic_snapshot(
+            frame,
+            "diagnostic.png",
+        )
 
         await browser.close()
 
 
-# ============================================================
-# ENTRY POINT
-# ============================================================
-
 if __name__ == "__main__":
-
     try:
-
-        asyncio.run(
-            main()
-        )
-
+        asyncio.run(main())
     except Exception as exc:
-
         print()
         print("=" * 70)
         print("MONITOR FAILED")
         print("=" * 70)
-        print(str(exc))
-
-        diagnostic_lines.append("")
-        diagnostic_lines.append(
-            "=" * 70
-        )
-        diagnostic_lines.append(
-            "MONITOR FAILED"
-        )
-        diagnostic_lines.append(
-            "=" * 70
-        )
-        diagnostic_lines.append(
-            str(exc)
-        )
-
-        save_diagnostic()
-
+        print(f"{type(exc).__name__}: {exc}")
         raise
