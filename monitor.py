@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 CALCULATOR_URL = os.environ.get(
     "CALCULATOR_URL",
-    "https://REPLACE-WITH-THE-ACTUAL-HOST/KalkulatorCijena_WEB_app/Default.aspx",
+    "https://www.posta.ba/kalkulator-cijena/",
 )
 
 OUTPUT_FILE = Path("countries.txt")
