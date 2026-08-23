@@ -8,50 +8,177 @@ permissions:
 
 jobs:
   monitor:
+    name: Run BH Pošta calculator monitor
     runs-on: ubuntu-latest
 
+    timeout-minutes: 60
+
     steps:
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ============================================================
+      # PYTHON
+      # ============================================================
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # ============================================================
+      # DEPENDENCIES
+      # ============================================================
+
       - name: Install Python dependencies
-        continue-on-error: true
         run: |
+          set -e
+
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+
+          if [ -f requirements.txt ]; then
+            echo "Installing requirements.txt..."
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found."
+            echo "Installing Playwright directly..."
+            pip install playwright
+          fi
+
+          echo
+          echo "Installed Python packages:"
+          pip list
+
+      # ============================================================
+      # PLAYWRIGHT
+      # ============================================================
 
       - name: Install Playwright Chromium
-        continue-on-error: true
         run: |
+          set -e
+
+          echo "Installing Playwright Chromium..."
           python -m playwright install --with-deps chromium
+
+          echo
+          echo "Playwright installation completed."
+
+      # ============================================================
+      # VERIFY FILES BEFORE EXECUTION
+      # ============================================================
+
+      - name: Verify repository files
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "REPOSITORY CHECK"
+          echo "============================================================"
+
+          pwd
+
+          echo
+          echo "monitor.py:"
+          if [ -f monitor.py ]; then
+            ls -lh monitor.py
+            wc -l monitor.py
+          else
+            echo "ERROR: monitor.py does not exist."
+            exit 1
+          fi
+
+          echo
+          echo "monitor.yml:"
+          if [ -f .github/workflows/monitor.yml ]; then
+            ls -lh .github/workflows/monitor.yml
+          else
+            echo "WARNING: .github/workflows/monitor.yml not found."
+          fi
+
+          echo
+          echo "requirements.txt:"
+          if [ -f requirements.txt ]; then
+            ls -lh requirements.txt
+            cat requirements.txt
+          else
+            echo "requirements.txt does not exist."
+          fi
+
+      # ============================================================
+      # SYNTAX CHECK
+      # ============================================================
 
       - name: Check monitor.py syntax
         id: syntax
         continue-on-error: true
         run: |
-          echo "Checking monitor.py syntax..."
+          echo "============================================================"
+          echo "PYTHON SYNTAX CHECK"
+          echo "============================================================"
+
+          echo "Checking monitor.py..."
+
           python -m py_compile monitor.py
-          echo "Syntax OK."
+
+          echo
+          echo "============================================================"
+          echo "SYNTAX OK"
+          echo "============================================================"
+
+      # ============================================================
+      # RUN MONITOR
+      #
+      # continue-on-error is intentional.
+      #
+      # If monitor.py fails, the following diagnostic/artifact steps
+      # MUST still execute.
+      # ============================================================
 
       - name: Run monitor
         id: monitor
         continue-on-error: true
         env:
           CALCULATOR_URL: https://www.posta.ba/kalkulator-cijena/
+          PYTHONUNBUFFERED: "1"
         run: |
-          echo "Starting monitor..."
+          echo "============================================================"
+          echo "STARTING MONITOR"
+          echo "============================================================"
+
+          echo "Python:"
+          python --version
+
+          echo
+          echo "Playwright:"
+          python -c "import playwright; print(playwright.__file__)"
+
+          echo
+          echo "Working directory:"
+          pwd
+
+          echo
+          echo "Starting monitor.py..."
+          echo
+
           python monitor.py
 
-      - name: Collect monitor files
+      # ============================================================
+      # COLLECT RESULTS
+      #
+      # ALWAYS runs, including when monitor.py fails.
+      # ============================================================
+
+      - name: Collect monitor results
         if: always()
         run: |
           echo "============================================================"
-          echo "MONITOR FILE COLLECTION"
+          echo "MONITOR RESULT COLLECTION"
           echo "============================================================"
 
           echo
@@ -59,7 +186,10 @@ jobs:
           pwd
 
           echo
-          echo "Repository files:"
+          echo "============================================================"
+          echo "TOP-LEVEL FILES"
+          echo "============================================================"
+
           find . -maxdepth 3 -type f -print | sort
 
           echo
@@ -68,11 +198,15 @@ jobs:
           echo "============================================================"
 
           if [ -f calculator-results.txt ]; then
-            echo "FOUND calculator-results.txt"
+            echo "FOUND: calculator-results.txt"
+            echo
+            ls -lh calculator-results.txt
+            echo
             wc -c calculator-results.txt
+            echo
             cat calculator-results.txt
           else
-            echo "NOT FOUND"
+            echo "NOT FOUND: calculator-results.txt"
           fi
 
           echo
@@ -81,11 +215,15 @@ jobs:
           echo "============================================================"
 
           if [ -f countries.txt ]; then
-            echo "FOUND countries.txt"
+            echo "FOUND: countries.txt"
+            echo
+            ls -lh countries.txt
+            echo
             wc -c countries.txt
+            echo
             cat countries.txt
           else
-            echo "NOT FOUND"
+            echo "NOT FOUND: countries.txt"
           fi
 
           echo
@@ -94,10 +232,16 @@ jobs:
           echo "============================================================"
 
           if [ -f diagnostic.txt ]; then
+            echo "FOUND: diagnostic.txt"
+            echo
+            ls -lh diagnostic.txt
+            echo
             wc -c diagnostic.txt
-            cat diagnostic.txt
+            echo
+            head -c 50000 diagnostic.txt
+            echo
           else
-            echo "NOT FOUND"
+            echo "NOT FOUND: diagnostic.txt"
           fi
 
           echo
@@ -106,37 +250,136 @@ jobs:
           echo "============================================================"
 
           if [ -f iframe.txt ]; then
+            echo "FOUND: iframe.txt"
+            echo
+            ls -lh iframe.txt
+            echo
             wc -c iframe.txt
-            cat iframe.txt
+            echo
+            head -c 30000 iframe.txt
+            echo
           else
-            echo "NOT FOUND"
+            echo "NOT FOUND: iframe.txt"
           fi
 
           echo
           echo "============================================================"
-          echo "FILE LIST"
+          echo "HTML / IMAGE DIAGNOSTICS"
+          echo "============================================================"
+
+          for file in \
+            page.html \
+            iframe.html \
+            diagnostic.html \
+            diagnostic.png \
+            response.html \
+            calculator.html \
+            debug.txt
+          do
+            if [ -f "$file" ]; then
+              echo
+              echo "FOUND: $file"
+              ls -lh "$file"
+            else
+              echo "NOT FOUND: $file"
+            fi
+          done
+
+          echo
+          echo "============================================================"
+          echo "MONITOR SOURCE"
+          echo "============================================================"
+
+          if [ -f monitor.py ]; then
+            echo "monitor.py exists."
+            ls -lh monitor.py
+            echo "Lines:"
+            wc -l monitor.py
+          fi
+
+          echo
+          echo "============================================================"
+          echo "FINAL FILE LIST"
           echo "============================================================"
 
           ls -lah
+
+      # ============================================================
+      # CREATE AN ARTIFACT DIRECTORY
+      #
+      # Copy files into one predictable directory.
+      # Missing files are allowed because the monitor may fail before
+      # creating them.
+      # ============================================================
+
+      - name: Prepare artifact directory
+        if: always()
+        run: |
+          set +e
+
+          rm -rf monitor-artifacts
+          mkdir -p monitor-artifacts
+
+          echo "Copying monitor artifacts..."
+
+          for file in \
+            calculator-results.txt \
+            countries.txt \
+            diagnostic.txt \
+            diagnostic.html \
+            diagnostic.png \
+            page.html \
+            iframe.html \
+            iframe.txt \
+            response.html \
+            calculator.html \
+            debug.txt \
+            monitor.py \
+            .github/workflows/monitor.yml
+          do
+            if [ -f "$file" ]; then
+              echo "Copying: $file"
+
+              if [[ "$file" == ".github/workflows/monitor.yml" ]]; then
+                cp "$file" "monitor-artifacts/monitor.yml"
+              else
+                cp "$file" "monitor-artifacts/$(basename "$file")"
+              fi
+            else
+              echo "Missing: $file"
+            fi
+          done
+
+          echo
+          echo "============================================================"
+          echo "ARTIFACT DIRECTORY"
+          echo "============================================================"
+
+          find monitor-artifacts -maxdepth 2 -type f -print -exec ls -lh {} \;
+
+      # ============================================================
+      # UPLOAD ARTIFACTS
+      #
+      # ALWAYS runs.
+      #
+      # This is the important part: even if monitor.py fails, the
+      # diagnostic files and any partial calculator-results.txt are
+      # still uploaded.
+      # ============================================================
 
       - name: Upload monitor artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jp-bh-posta-monitor
-          path: |
-            calculator-results.txt
-            countries.txt
-            diagnostic.txt
-            diagnostic.html
-            diagnostic.png
-            page.html
-            iframe.html
-            iframe.txt
-            monitor.py
-            monitor.yml
+          name: jp-bh-posta-monitor-${{ github.run_number }}
+          path: monitor-artifacts/
           if-no-files-found: warn
           retention-days: 14
+          compression-level: 6
+
+      # ============================================================
+      # FINAL STATUS
+      # ============================================================
 
       - name: Final status
         if: always()
@@ -144,18 +387,38 @@ jobs:
           echo "============================================================"
           echo "FINAL STATUS"
           echo "============================================================"
+
           echo "Syntax check: ${{ steps.syntax.outcome }}"
           echo "Monitor:      ${{ steps.monitor.outcome }}"
+
+          echo
           echo "============================================================"
 
           if [ "${{ steps.syntax.outcome }}" != "success" ]; then
-            echo "monitor.py has a syntax error."
+            echo "ERROR: monitor.py has a Python syntax error."
+            echo "The monitor was not executed."
             exit 1
           fi
 
           if [ "${{ steps.monitor.outcome }}" != "success" ]; then
-            echo "Monitor execution failed."
+            echo "ERROR: monitor.py execution failed."
+            echo "Diagnostic artifacts have been uploaded."
             exit 1
           fi
 
+          if [ ! -f calculator-results.txt ]; then
+            echo "ERROR: calculator-results.txt was not created."
+            echo "The monitor completed without producing the required results file."
+            exit 1
+          fi
+
+          echo "calculator-results.txt was created."
+
+          if [ ! -f countries.txt ]; then
+            echo "WARNING: countries.txt was not created."
+          else
+            echo "countries.txt was created."
+          fi
+
+          echo
           echo "Monitor completed successfully."
