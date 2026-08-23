@@ -14,6 +14,7 @@ OUTPUT = Path("posta-countries.txt")
 
 COUNTRY_SELECTOR = "#ddlMeDoOdrediste"
 INTERNATIONAL_TAB = "#ASPxTabControl1_T1T"
+INTERNATIONAL_TAB_LI = "#ASPxTabControl1_T1"
 WEIGHT_SELECTOR = "#tbxMeDoAvioTezina"
 CALCULATE_SELECTOR = "#btnMeDoIzracunaj"
 
@@ -106,149 +107,284 @@ async def find_calculator_frame(page):
     return None
 
 
+async def wait_for_country_dropdown(frame, seconds=15):
+    print(
+        "Waiting for country dropdown..."
+    )
+
+    attempts = int(seconds * 2)
+
+    for attempt in range(attempts):
+        try:
+            dropdown = frame.locator(
+                COUNTRY_SELECTOR
+            )
+
+            if await dropdown.count():
+                print(
+                    "Country dropdown is present."
+                )
+                return True
+
+        except Exception:
+            pass
+
+        await frame.page.wait_for_timeout(500)
+
+    return False
+
+
 async def select_international(frame):
     print("Selecting Međunarodni promet...")
 
-    selector = INTERNATIONAL_TAB
-
     try:
-        locator = frame.locator(selector)
-
-        count = await locator.count()
-
-        print(
-            f"{selector} matches: {count}"
+        tab = frame.locator(
+            INTERNATIONAL_TAB
         )
 
-        if count == 0:
-            print(
-                "International tab selector was not found."
-            )
-            return False
+        tab_count = await tab.count()
 
-        element = locator.first
+        print(
+            f"{INTERNATIONAL_TAB} matches: "
+            f"{tab_count}"
+        )
+
+        if tab_count == 0:
+            raise RuntimeError(
+                "International tab anchor was not found."
+            )
 
         print("International tab HTML:")
 
         try:
             print(
-                await element.evaluate(
+                await tab.first.evaluate(
                     "(el) => el.outerHTML"
                 )
             )
         except Exception:
             pass
 
-        # First try clicking the actual tab anchor.
+        # --------------------------------------------------------
+        # METHOD 1:
+        # Use the DevExpress client-side tab-control API.
+        #
+        # The HTML identifies the control as:
+        # ASPxTabControl1
+        #
+        # Tab index 0 = Unutrašnji promet
+        # Tab index 1 = Međunarodni promet
+        # --------------------------------------------------------
+
+        print(
+            "Trying DevExpress ASPxTabControl client API..."
+        )
+
         try:
-            await element.scroll_into_view_if_needed()
-
-            await element.click(
-                force=True,
-                timeout=10000,
-            )
-
-            print(
-                "Clicked #ASPxTabControl1_T1T."
-            )
-
-            await frame.page.wait_for_timeout(2500)
-
-            # Verify that the international panel has appeared
-            # by checking for the country dropdown.
-            dropdown = frame.locator(COUNTRY_SELECTOR)
-
-            if await dropdown.count():
-                print(
-                    "Country dropdown is available after "
-                    "selecting Međunarodni promet."
-                )
-                return True
-
-            print(
-                "Click succeeded, but country dropdown "
-                "is not available yet."
-            )
-
-        except Exception as exc:
-            print(
-                "Normal click failed:"
-            )
-            print(exc)
-
-        # JavaScript fallback.
-        try:
-            result = await element.evaluate(
+            result = await frame.evaluate(
                 """
-                (el) => {
-                    el.click();
-                    return true;
+                () => {
+                    if (
+                        typeof ASPxClientTabControl === "undefined"
+                    ) {
+                        return {
+                            success: false,
+                            reason: "ASPxClientTabControl undefined"
+                        };
+                    }
+
+                    const control =
+                        ASPxClientTabControl.Cast(
+                            "ASPxTabControl1"
+                        );
+
+                    if (!control) {
+                        return {
+                            success: false,
+                            reason: "ASPxTabControl1 not found"
+                        };
+                    }
+
+                    control.SetActiveTabIndex(1);
+
+                    return {
+                        success: true,
+                        activeIndex:
+                            control.GetActiveTabIndex()
+                    };
                 }
                 """
             )
 
             print(
-                "JavaScript click result: "
-                + str(result)
+                "DevExpress result:"
             )
+            print(result)
 
             await frame.page.wait_for_timeout(3000)
 
-            dropdown = frame.locator(COUNTRY_SELECTOR)
-
-            if await dropdown.count():
+            if await wait_for_country_dropdown(
+                frame,
+                seconds=10,
+            ):
                 print(
-                    "Country dropdown is available after "
-                    "JavaScript click."
+                    "SUCCESS: Međunarodni promet "
+                    "activated through DevExpress API."
                 )
                 return True
 
         except Exception as exc:
             print(
-                "JavaScript click failed:"
+                "DevExpress API attempt failed:"
             )
             print(exc)
 
-        # Last fallback: click the parent <li>.
+        # --------------------------------------------------------
+        # METHOD 2:
+        # Click the actual <li> tab rather than the <a>.
+        # --------------------------------------------------------
+
+        print(
+            "Trying the actual tab <li>..."
+        )
+
         try:
-            parent = element.locator(
-                "xpath=ancestor::li[1]"
+            tab_li = frame.locator(
+                INTERNATIONAL_TAB_LI
             )
 
-            if await parent.count():
+            if await tab_li.count():
                 print(
-                    "Trying parent <li> click..."
+                    "Tab <li> found."
                 )
 
-                await parent.click(
+                print(
+                    await tab_li.first.evaluate(
+                        "(el) => el.outerHTML"
+                    )
+                )
+
+                await tab_li.first.scroll_into_view_if_needed()
+
+                await tab_li.first.click(
                     force=True,
                     timeout=10000,
                 )
 
                 await frame.page.wait_for_timeout(3000)
 
-                dropdown = frame.locator(
-                    COUNTRY_SELECTOR
-                )
-
-                if await dropdown.count():
+                if await wait_for_country_dropdown(
+                    frame,
+                    seconds=10,
+                ):
                     print(
-                        "Country dropdown is available "
-                        "after parent <li> click."
+                        "SUCCESS: Međunarodni promet "
+                        "activated by clicking the <li>."
                     )
                     return True
 
         except Exception as exc:
             print(
-                "Parent <li> click failed:"
+                "<li> click failed:"
+            )
+            print(exc)
+
+        # --------------------------------------------------------
+        # METHOD 3:
+        # JavaScript click on the <li>.
+        # --------------------------------------------------------
+
+        print(
+            "Trying JavaScript click on tab <li>..."
+        )
+
+        try:
+            result = await frame.evaluate(
+                """
+                () => {
+                    const li =
+                        document.getElementById(
+                            "ASPxTabControl1_T1"
+                        );
+
+                    if (!li) {
+                        return false;
+                    }
+
+                    li.click();
+
+                    return true;
+                }
+                """
+            )
+
+            print(
+                "JavaScript <li> click result: "
+                + str(result)
+            )
+
+            await frame.page.wait_for_timeout(3000)
+
+            if await wait_for_country_dropdown(
+                frame,
+                seconds=10,
+            ):
+                print(
+                    "SUCCESS: Međunarodni promet "
+                    "activated through JavaScript <li> click."
+                )
+                return True
+
+        except Exception as exc:
+            print(
+                "JavaScript <li> click failed:"
+            )
+            print(exc)
+
+        # --------------------------------------------------------
+        # METHOD 4:
+        # Direct anchor click as final fallback.
+        # --------------------------------------------------------
+
+        print(
+            "Trying direct anchor click as final fallback..."
+        )
+
+        try:
+            await tab.first.scroll_into_view_if_needed()
+
+            await tab.first.click(
+                force=True,
+                timeout=10000,
+            )
+
+            await frame.page.wait_for_timeout(3000)
+
+            if await wait_for_country_dropdown(
+                frame,
+                seconds=10,
+            ):
+                print(
+                    "SUCCESS: Međunarodni promet "
+                    "activated by anchor click."
+                )
+                return True
+
+        except Exception as exc:
+            print(
+                "Anchor click failed:"
             )
             print(exc)
 
     except Exception as exc:
         print(
-            "Could not select international tab:"
+            "Could not access international tab:"
         )
         print(exc)
+
+    print(
+        "FAILED: Could not activate Međunarodni promet."
+    )
 
     return False
 
@@ -271,6 +407,7 @@ async def get_country_dropdown(frame):
                 print(
                     "Country dropdown found."
                 )
+
                 print(
                     f"Options: {option_count}"
                 )
@@ -348,9 +485,15 @@ async def select_country(dropdown, country):
             label=name
         )
 
-    # The country dropdown has an onchange __doPostBack.
-    # Give ASP.NET time to process that request.
-    await dropdown.page.wait_for_timeout(1800)
+    # The actual HTML you supplied contains:
+    #
+    # onchange="javascript:setTimeout(
+    #   '__doPostBack(\'ddlMeDoOdrediste\',\'\')',
+    #   0
+    # )"
+    #
+    # Give that ASP.NET postback time to complete.
+    await dropdown.page.wait_for_timeout(2000)
 
 
 async def click_calculate(frame):
@@ -421,7 +564,7 @@ async def click_calculate(frame):
 
 async def check_message(frame):
     # Wait up to approximately 10 seconds for the
-    # ASP.NET postback/update panel to finish.
+    # ASP.NET update panel/postback to finish.
     for attempt in range(40):
         text = await get_body_text(frame)
 
@@ -452,8 +595,6 @@ async def test_country(frame, dropdown, country):
             country,
         )
 
-        # The calculator field is specifically the aviation
-        # weight field you provided.
         weight = frame.locator(
             WEIGHT_SELECTOR
         )
@@ -461,9 +602,11 @@ async def test_country(frame, dropdown, country):
         if await weight.count():
             try:
                 await weight.fill("10")
+
                 print(
                     "Weight set to 10 grams."
                 )
+
             except Exception as exc:
                 print(
                     "Could not fill weight:"
@@ -495,6 +638,7 @@ async def test_country(frame, dropdown, country):
             print(
                 "LIST 2 ADD: " + name
             )
+
             return True
 
         print(
@@ -525,8 +669,7 @@ async def main():
         "Output: " + str(OUTPUT)
     )
 
-    # Start with an empty file so the workflow never ends up
-    # with a missing output file.
+    # Always create the output file immediately.
     write_output(
         [],
         [],
@@ -605,8 +748,8 @@ async def main():
                 )
 
             # IMPORTANT:
-            # List 1 is read only AFTER selecting
-            # Međunarodni promet.
+            # List 1 is captured only after
+            # Međunarodni promet is activated.
             list1 = await read_list1(
                 dropdown
             )
@@ -701,7 +844,7 @@ async def main():
                 + str(exc)
             )
 
-            # Preserve whatever progress has been collected.
+            # Preserve progress.
             try:
                 if "list1" in locals():
                     current_list1 = list1
@@ -718,10 +861,11 @@ async def main():
                     current_list2,
                     "FAILED",
                 )
+
             except Exception:
                 pass
 
-            # Save diagnostics.
+            # Diagnostics.
             try:
                 Path(
                     "diagnostic.html"
