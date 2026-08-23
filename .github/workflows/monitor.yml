@@ -15,9 +15,10 @@ jobs:
     name: Run BH Pošta calculator monitor
     runs-on: ubuntu-latest
 
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
+
       # ============================================================
       # CHECKOUT
       # ============================================================
@@ -50,6 +51,34 @@ jobs:
           python -m playwright install --with-deps chromium
 
       # ============================================================
+      # VERIFY MONITOR
+      # ============================================================
+
+      - name: Verify monitor.py
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "VERIFYING monitor.py"
+          echo "============================================================"
+
+          if [ ! -f monitor.py ]; then
+            echo "ERROR: monitor.py was not found."
+            exit 1
+          fi
+
+          ls -lh monitor.py
+          wc -l monitor.py
+
+          echo
+          echo "Checking Python syntax..."
+
+          python -m py_compile monitor.py
+
+          echo
+          echo "Syntax OK."
+
+      # ============================================================
       # RUN MONITOR
       # ============================================================
 
@@ -64,10 +93,11 @@ jobs:
           echo "JP BH POŠTA CALCULATOR MONITOR"
           echo "============================================================"
 
+          echo
           python --version
 
           echo
-          echo "Running monitor.py..."
+          echo "Starting monitor.py..."
 
           python monitor.py
 
@@ -76,30 +106,47 @@ jobs:
           echo "MONITOR FINISHED"
           echo "============================================================"
 
-          if [ ! -f posta-countries.txt ]; then
+      # ============================================================
+      # SHOW RESULT
+      # ============================================================
+
+      - name: Show posta-countries.txt
+        if: always()
+        run: |
+          echo "============================================================"
+          echo "POSTA-COUNTRIES.TXT"
+          echo "============================================================"
+
+          if [ -f posta-countries.txt ]; then
+            echo
+            echo "File exists:"
+            ls -lh posta-countries.txt
+
+            echo
+            echo "Contents:"
+            cat posta-countries.txt
+          else
+            echo
             echo "ERROR: posta-countries.txt was not created."
-            exit 1
           fi
-
-          echo
-          echo "Output file:"
-          ls -lh posta-countries.txt
-
-          echo
-          echo "Output:"
-          cat posta-countries.txt
 
       # ============================================================
       # COMMIT CHANGES
       # ============================================================
 
       - name: Commit updated country list
+        if: success()
         run: |
           set -e
 
           echo "============================================================"
           echo "CHECKING FOR CHANGES"
           echo "============================================================"
+
+          if [ ! -f posta-countries.txt ]; then
+            echo "ERROR: posta-countries.txt does not exist."
+            exit 1
+          fi
 
           git status --short
 
@@ -112,6 +159,10 @@ jobs:
 
           echo
           echo "Changes detected in posta-countries.txt."
+
+          echo
+          echo "Diff:"
+          git diff -- posta-countries.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -127,3 +178,19 @@ jobs:
           echo "============================================================"
           echo "CHANGES COMMITTED AND PUSHED"
           echo "============================================================"
+
+      # ============================================================
+      # UPLOAD RESULT AS ARTIFACT
+      #
+      # This is useful for troubleshooting even if something goes
+      # wrong before the Git commit.
+      # ============================================================
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posta-countries-${{ github.run_number }}
+          path: posta-countries.txt
+          if-no-files-found: warn
+          retention-days: 14
