@@ -3,10 +3,6 @@ name: Monitor JP BH Posta
 on:
   workflow_dispatch:
 
-  # Enable after the monitor has been verified.
-  # schedule:
-  #   - cron: "0 3 * * *"
-
 permissions:
   contents: write
 
@@ -24,17 +20,23 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
+        continue-on-error: true
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Install Playwright Chromium
+        continue-on-error: true
         run: |
           python -m playwright install --with-deps chromium
 
       - name: Check monitor.py syntax
+        id: syntax
+        continue-on-error: true
         run: |
+          echo "Checking monitor.py syntax..."
           python -m py_compile monitor.py
+          echo "Syntax OK."
 
       - name: Run monitor
         id: monitor
@@ -42,20 +44,22 @@ jobs:
         env:
           CALCULATOR_URL: https://www.posta.ba/kalkulator-cijena/
         run: |
+          echo "Starting monitor..."
           python monitor.py
 
-      - name: Show generated files
+      - name: Collect monitor files
         if: always()
         run: |
           echo "============================================================"
-          echo "WORKING DIRECTORY"
+          echo "MONITOR FILE COLLECTION"
           echo "============================================================"
+
+          echo
+          echo "Current directory:"
           pwd
 
           echo
-          echo "============================================================"
-          echo "ALL FILES"
-          echo "============================================================"
+          echo "Repository files:"
           find . -maxdepth 3 -type f -print | sort
 
           echo
@@ -64,9 +68,11 @@ jobs:
           echo "============================================================"
 
           if [ -f calculator-results.txt ]; then
+            echo "FOUND calculator-results.txt"
+            wc -c calculator-results.txt
             cat calculator-results.txt
           else
-            echo "calculator-results.txt does not exist"
+            echo "NOT FOUND"
           fi
 
           echo
@@ -75,40 +81,43 @@ jobs:
           echo "============================================================"
 
           if [ -f countries.txt ]; then
+            echo "FOUND countries.txt"
+            wc -c countries.txt
             cat countries.txt
           else
-            echo "countries.txt does not exist"
+            echo "NOT FOUND"
           fi
 
           echo
           echo "============================================================"
-          echo "DIAGNOSTIC FILES"
+          echo "diagnostic.txt"
           echo "============================================================"
 
-          for f in \
-            diagnostic.txt \
-            diagnostic.html \
-            diagnostic.png \
-            page.html \
-            iframe.html \
-            iframe.txt
-          do
-            if [ -f "$f" ]; then
-              echo
-              echo "----- $f -----"
+          if [ -f diagnostic.txt ]; then
+            wc -c diagnostic.txt
+            cat diagnostic.txt
+          else
+            echo "NOT FOUND"
+          fi
 
-              if [[ "$f" == *.png ]]; then
-                ls -lh "$f"
-              else
-                wc -c "$f"
-                head -c 30000 "$f"
-                echo
-              fi
-            else
-              echo
-              echo "$f does not exist"
-            fi
-          done
+          echo
+          echo "============================================================"
+          echo "iframe.txt"
+          echo "============================================================"
+
+          if [ -f iframe.txt ]; then
+            wc -c iframe.txt
+            cat iframe.txt
+          else
+            echo "NOT FOUND"
+          fi
+
+          echo
+          echo "============================================================"
+          echo "FILE LIST"
+          echo "============================================================"
+
+          ls -lah
 
       - name: Upload monitor artifacts
         if: always()
@@ -124,38 +133,29 @@ jobs:
             page.html
             iframe.html
             iframe.txt
+            monitor.py
+            monitor.yml
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Report monitor result
+      - name: Final status
         if: always()
         run: |
-          echo "Monitor outcome: ${{ steps.monitor.outcome }}"
+          echo "============================================================"
+          echo "FINAL STATUS"
+          echo "============================================================"
+          echo "Syntax check: ${{ steps.syntax.outcome }}"
+          echo "Monitor:      ${{ steps.monitor.outcome }}"
+          echo "============================================================"
+
+          if [ "${{ steps.syntax.outcome }}" != "success" ]; then
+            echo "monitor.py has a syntax error."
+            exit 1
+          fi
 
           if [ "${{ steps.monitor.outcome }}" != "success" ]; then
-            echo "Monitor failed."
-            echo "Artifacts were still requested."
+            echo "Monitor execution failed."
             exit 1
           fi
 
           echo "Monitor completed successfully."
-
-      # Keep these disabled until the destination data is verified.
-      #
-      # - name: Check whether countries.txt changed
-      #   id: changes
-      #   run: |
-      #     if git diff --quiet -- countries.txt; then
-      #       echo "changed=false" >> "$GITHUB_OUTPUT"
-      #     else
-      #       echo "changed=true" >> "$GITHUB_OUTPUT"
-      #     fi
-      #
-      # - name: Commit updated countries.txt
-      #   if: steps.changes.outputs.changed == 'true'
-      #   run: |
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      #     git add countries.txt
-      #     git commit -m "Update destination availability"
-      #     git push
