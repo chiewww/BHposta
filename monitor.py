@@ -9,130 +9,67 @@ from playwright.async_api import (
 )
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
 URL = os.getenv(
     "CALCULATOR_URL",
     "https://www.posta.ba/kalkulator-cijena/",
-)
-
-OUTPUT_FILE = Path("posta-countries.txt")
-
-NAVIGATION_TIMEOUT = 30_000
-DEFAULT_TIMEOUT = 10_000
-FRAME_WAIT_TIMEOUT = 30_000
-CALCULATION_TIMEOUT = 10_000
-
-BETWEEN_DESTINATIONS_MS = 300
-
-UNAVAILABLE_MESSAGE = (
-    "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 )
 
 CALCULATOR_IFRAME_URL_PART = (
     "bhpwebout.posta.ba/KalkulatorCijena_WEB_app"
 )
 
+OUTPUT_FILE = Path("posta-countries.txt")
 
-# ============================================================
-# ACTUAL CONTROLS PROVIDED FROM THE WEBSITE
-# ============================================================
+NAVIGATION_TIMEOUT = 30_000
+DEFAULT_TIMEOUT = 5_000
+FRAME_WAIT_TIMEOUT = 30_000
 
-INTERNATIONAL_TEXT = "Međunarodni promet"
+# How long to wait after clicking "Izračunaj" for the
+# unavailable message to appear.
+RESULT_WAIT_TIMEOUT = 3_000
 
-DOPISNICA_SELECTOR = "#ImageButton8"
+# Small pause between countries.
+BETWEEN_COUNTRIES_MS = 100
 
-COUNTRY_SELECTOR = "#ddlMeDoOdrediste"
+# Overall safety limit.
+OVERALL_TIMEOUT = 45 * 60 * 1000
 
-AIR_TRANSPORT_SELECTOR = "#chbMeDoAvionski"
-
-WEIGHT_SELECTOR = "#tbxMeDoAvioTezina"
-
-CALCULATE_SELECTOR = "#btnMeDoIzracunaj"
-
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def clean_text(value):
-    """
-    Normalize only whitespace around/inside text.
-
-    For country names, the actual option text is preserved as much
-    as possible. We do NOT sort, deduplicate, or otherwise modify
-    the dropdown entries.
-    """
-    return " ".join((value or "").split())
+UNAVAILABLE_MESSAGE = (
+    "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
+)
 
 
-def save_output(dropdown, unavailable):
-    """
-    Write the single file that changedetection.io will monitor.
-
-    List 1:
-        Every dropdown entry, exact order.
-
-    List 2:
-        Only countries for which the exact unavailable message
-        appeared after clicking Izračunaj.
-    """
-
-    lines = []
-
-    lines.append("DROPDOWN")
-
-    for country in dropdown:
-        lines.append(country)
-
-    lines.append("")
-    lines.append("UNAVAILABLE")
-
-    for country in unavailable:
-        lines.append(country)
-
-    text = "\n".join(lines) + "\n"
-
-    OUTPUT_FILE.write_text(
-        text,
+def save_text(path, text):
+    path.write_text(
+        text or "",
         encoding="utf-8",
     )
 
-    print(
-        f"Saved {OUTPUT_FILE} "
-        f"({len(text):,} bytes)"
-    )
+
+def clean_name(value):
+    return " ".join(
+        (value or "").split()
+    ).strip()
 
 
-async def get_body_text(frame):
+async def frame_content(frame):
     try:
-        return await frame.locator(
-            "body"
-        ).inner_text(
-            timeout=DEFAULT_TIMEOUT
-        )
+        return await frame.content()
     except Exception:
         return ""
 
-
-# ============================================================
-# FIND CALCULATOR IFRAME
-# ============================================================
 
 async def find_calculator_frame(page):
     """
     Locate the BH Pošta calculator iframe.
 
-    The iframe can initially appear as about:blank, so we repeatedly
-    inspect all frames.
+    First tries the known iframe URL.
+    Then falls back to inspecting frame HTML.
     """
 
     print("Locating calculator iframe...")
 
     for attempt in range(1, 31):
-
         frames = page.frames
 
         print(
@@ -140,47 +77,39 @@ async def find_calculator_frame(page):
             f"({len(frames)} frames)"
         )
 
-        # ----------------------------------------------------
-        # First: known iframe URL
-        # ----------------------------------------------------
+        # --------------------------------------------------------
+        # First choice: known calculator iframe URL.
+        # --------------------------------------------------------
 
         for index, frame in enumerate(frames):
-
-            frame_url = frame.url or ""
+            url = frame.url or ""
 
             if (
                 CALCULATOR_IFRAME_URL_PART.casefold()
-                in frame_url.casefold()
+                in url.casefold()
             ):
                 print(
-                    f"Calculator iframe found: frame {index}"
+                    f"Calculator iframe found: "
+                    f"frame {index}"
                 )
-
-                print(
-                    f"URL: {frame_url}"
-                )
-
+                print(f"URL: {url}")
                 return frame
 
-        # ----------------------------------------------------
-        # Second: inspect HTML for calculator controls
-        # ----------------------------------------------------
+        # --------------------------------------------------------
+        # Second choice: inspect HTML.
+        # --------------------------------------------------------
 
         for index, frame in enumerate(frames):
-
-            try:
-                html = await frame.content()
-            except Exception:
-                continue
+            html = await frame_content(frame)
 
             if not html:
                 continue
 
             markers = (
                 "ddlMeDoOdrediste",
-                "tbxMeDoAvioTezina",
                 "btnMeDoIzracunaj",
-                "ImageButton8",
+                "tbxMeDoAvioTezina",
+                "chbMeDoAvionski",
                 "Međunarodni promet",
             )
 
@@ -189,14 +118,12 @@ async def find_calculator_frame(page):
                 for marker in markers
             ):
                 print(
-                    f"Calculator iframe found by HTML: "
-                    f"frame {index}"
+                    f"Calculator iframe found "
+                    f"by HTML: frame {index}"
                 )
-
                 print(
                     f"URL: {frame.url}"
                 )
-
                 return frame
 
         await page.wait_for_timeout(1_000)
@@ -204,158 +131,128 @@ async def find_calculator_frame(page):
     return None
 
 
-# ============================================================
-# SELECT MEĐUNARODNI PROMET
-# ============================================================
-
-async def activate_international(frame):
+async def click_international(frame):
     """
-    Click the visible 'Međunarodni promet' tab.
+    Select the 'Međunarodni promet' tab.
 
-    The site uses DevExpress/ASP.NET controls, so we intentionally
-    target the visible text rather than guessing a generated ID.
+    We deliberately do this before looking for the country
+    dropdown because the international controls are not present
+    until this tab is selected.
     """
 
     print()
     print("Selecting Međunarodni promet...")
 
-    # --------------------------------------------------------
-    # Exact visible text
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
+    # Exact visible text.
+    # ------------------------------------------------------------
 
     try:
-        candidates = frame.get_by_text(
-            INTERNATIONAL_TEXT,
+        locator = frame.get_by_text(
+            "Međunarodni promet",
             exact=True,
-        )
-
-        count = await candidates.count()
-
-        print(
-            f"International text candidates: {count}"
-        )
-
-        for i in range(count):
-
-            candidate = candidates.nth(i)
-
-            try:
-                if not await candidate.is_visible():
-                    continue
-            except Exception:
-                continue
-
-            print(
-                "Found visible Međunarodni promet."
-            )
-
-            # Try normal click first.
-            try:
-                await candidate.click(
-                    timeout=DEFAULT_TIMEOUT,
-                )
-
-                print(
-                    "Clicked Međunarodni promet."
-                )
-
-                await frame.page.wait_for_timeout(
-                    1_500
-                )
-
-                return True
-
-            except Exception as exc:
-                print(
-                    f"Normal click failed: {exc}"
-                )
-
-            # Try forced click.
-            try:
-                await candidate.click(
-                    timeout=DEFAULT_TIMEOUT,
-                    force=True,
-                )
-
-                print(
-                    "Clicked Međunarodni promet "
-                    "using force=True."
-                )
-
-                await frame.page.wait_for_timeout(
-                    1_500
-                )
-
-                return True
-
-            except Exception as exc:
-                print(
-                    f"Forced click failed: {exc}"
-                )
-
-            # Try clickable ancestors.
-            for xpath in (
-                "xpath=ancestor::a[1]",
-                "xpath=ancestor::td[1]",
-                "xpath=ancestor::div[1]",
-                "xpath=parent::*",
-            ):
-
-                try:
-                    parent = candidate.locator(
-                        xpath
-                    )
-
-                    if await parent.count() == 0:
-                        continue
-
-                    await parent.first.click(
-                        timeout=DEFAULT_TIMEOUT,
-                        force=True,
-                    )
-
-                    print(
-                        f"Clicked ancestor: {xpath}"
-                    )
-
-                    await frame.page.wait_for_timeout(
-                        1_500
-                    )
-
-                    return True
-
-                except Exception:
-                    continue
-
-    except Exception as exc:
-        print(
-            f"Exact international search failed: {exc}"
-        )
-
-    # --------------------------------------------------------
-    # Generic fallback
-    # --------------------------------------------------------
-
-    try:
-        locator = frame.locator(
-            "span, a, td, div"
         )
 
         count = await locator.count()
 
         for i in range(count):
+            item = locator.nth(i)
 
-            element = locator.nth(i)
+            try:
+                if not await item.is_visible():
+                    continue
+
+                print(
+                    "Found visible "
+                    "Međunarodni promet."
+                )
+
+                try:
+                    await item.click(
+                        timeout=DEFAULT_TIMEOUT,
+                        force=True,
+                    )
+
+                    await frame.page.wait_for_timeout(
+                        500
+                    )
+
+                    print(
+                        "Međunarodni promet selected."
+                    )
+
+                    return True
+
+                except Exception as exc:
+                    print(
+                        f"Direct click failed: {exc}"
+                    )
+
+                # Try clickable ancestors.
+                for xpath in (
+                    "xpath=ancestor::td[1]",
+                    "xpath=ancestor::a[1]",
+                    "xpath=ancestor::div[1]",
+                    "xpath=parent::*",
+                ):
+                    try:
+                        parent = item.locator(
+                            xpath
+                        )
+
+                        if await parent.count() == 0:
+                            continue
+
+                        await parent.first.click(
+                            timeout=DEFAULT_TIMEOUT,
+                            force=True,
+                        )
+
+                        await frame.page.wait_for_timeout(
+                            500
+                        )
+
+                        print(
+                            "Međunarodni promet "
+                            "selected through ancestor."
+                        )
+
+                        return True
+
+                    except Exception:
+                        continue
+
+            except Exception:
+                continue
+
+    except Exception as exc:
+        print(
+            f"Exact text lookup failed: {exc}"
+        )
+
+    # ------------------------------------------------------------
+    # Generic fallback.
+    # ------------------------------------------------------------
+
+    try:
+        elements = frame.locator(
+            "span,td,a,div"
+        )
+
+        count = await elements.count()
+
+        for i in range(count):
+            element = elements.nth(i)
 
             try:
                 if not await element.is_visible():
                     continue
 
-                text = clean_text(
+                text = clean_name(
                     await element.inner_text()
                 )
 
-                if text != INTERNATIONAL_TEXT:
+                if text != "Međunarodni promet":
                     continue
 
                 await element.click(
@@ -363,13 +260,13 @@ async def activate_international(frame):
                     force=True,
                 )
 
-                print(
-                    "Clicked Međunarodni promet "
-                    "using generic element search."
+                await frame.page.wait_for_timeout(
+                    500
                 )
 
-                await frame.page.wait_for_timeout(
-                    1_500
+                print(
+                    "Međunarodni promet selected "
+                    "through generic search."
                 )
 
                 return True
@@ -379,54 +276,41 @@ async def activate_international(frame):
 
     except Exception as exc:
         print(
-            f"Generic international search failed: {exc}"
+            f"Generic international-tab "
+            f"search failed: {exc}"
         )
 
     return False
 
 
-# ============================================================
-# SELECT DOPISNICA
-# ============================================================
-
-async def activate_dopisnica(frame):
+async def click_dopisnica(frame):
     """
-    Select the Dopisnica calculator.
+    Select Dopisnica.
 
-    Actual control supplied by the user:
+    User supplied the actual control:
 
-        #ImageButton8
-
-    This is an image submit control, so clicking it can trigger
-    an ASP.NET postback.
+        <input type="image"
+               name="ImageButton8"
+               id="ImageButton8"
+               title="Dopisnica"
+               ...>
     """
 
     print()
     print("Selecting Dopisnica...")
 
+    # ------------------------------------------------------------
+    # Exact selector supplied by user.
+    # ------------------------------------------------------------
+
     try:
         button = frame.locator(
-            DOPISNICA_SELECTOR
+            "#ImageButton8"
         )
 
-        count = await button.count()
-
-        print(
-            f"Dopisnica controls found: {count}"
-        )
-
-        if count == 0:
-            return False
-
-        await button.first.scroll_into_view_if_needed()
-
-        try:
-            await button.first.click(
-                timeout=DEFAULT_TIMEOUT,
-            )
-        except Exception as exc:
+        if await button.count() > 0:
             print(
-                f"Normal Dopisnica click failed: {exc}"
+                "Found #ImageButton8"
             )
 
             await button.first.click(
@@ -434,40 +318,91 @@ async def activate_dopisnica(frame):
                 force=True,
             )
 
-        print(
-            "Clicked Dopisnica."
-        )
+            # ASP.NET postback.
+            await frame.page.wait_for_timeout(
+                700
+            )
 
-        # Give ASP.NET AJAX/postback time to update.
-        await frame.page.wait_for_timeout(
-            2_000
-        )
+            print(
+                "Dopisnica selected."
+            )
 
-        return True
+            return True
 
     except Exception as exc:
         print(
-            f"Could not select Dopisnica: {exc}"
+            f"#ImageButton8 click failed: {exc}"
         )
 
-        return False
+    # ------------------------------------------------------------
+    # Fallback by title.
+    # ------------------------------------------------------------
+
+    try:
+        button = frame.locator(
+            "input[title='Dopisnica']"
+        )
+
+        if await button.count() > 0:
+            await button.first.click(
+                timeout=DEFAULT_TIMEOUT,
+                force=True,
+            )
+
+            await frame.page.wait_for_timeout(
+                700
+            )
+
+            print(
+                "Dopisnica selected "
+                "using title selector."
+            )
+
+            return True
+
+    except Exception as exc:
+        print(
+            f"Dopisnica title fallback failed: "
+            f"{exc}"
+        )
+
+    return False
 
 
-# ============================================================
-# WAIT FOR COUNTRY DROPDOWN
-# ============================================================
+async def find_country_select(frame):
+    """
+    Locate the exact international country dropdown supplied
+    by the user:
 
-async def wait_for_country_dropdown(
+        #ddlMeDoOdrediste
+    """
+
+    selector = frame.locator(
+        "#ddlMeDoOdrediste"
+    )
+
+    try:
+        if await selector.count() > 0:
+            print(
+                "Found country dropdown:"
+                " #ddlMeDoOdrediste"
+            )
+
+            return selector.first
+
+    except Exception:
+        pass
+
+    return None
+
+
+async def wait_for_country_select(
     frame,
     timeout_ms=FRAME_WAIT_TIMEOUT,
 ):
     """
-    Wait until the actual international country selector exists
-    and contains options.
+    Wait until the international country dropdown appears.
     """
-
-    print()
-    print("Waiting for international country dropdown...")
 
     deadline = (
         asyncio.get_running_loop().time()
@@ -478,71 +413,37 @@ async def wait_for_country_dropdown(
         asyncio.get_running_loop().time()
         < deadline
     ):
+        select = await find_country_select(
+            frame
+        )
 
-        try:
-            selector = frame.locator(
-                COUNTRY_SELECTOR
-            )
-
-            if await selector.count() > 0:
-
-                try:
-                    if await selector.first.is_visible():
-
-                        option_count = (
-                            await selector.first.locator(
-                                "option"
-                            ).count()
-                        )
-
-                        print(
-                            f"Country dropdown found "
-                            f"with {option_count} options."
-                        )
-
-                        if option_count > 0:
-                            return selector.first
-
-                except Exception:
-                    pass
-
-        except Exception:
-            pass
+        if select is not None:
+            return select
 
         await frame.page.wait_for_timeout(
-            500
+            300
         )
 
     return None
 
 
-# ============================================================
-# READ DROPDOWN
-# ============================================================
-
-async def read_dropdown(country_select):
+async def read_dropdown_options(
+    country_select,
+):
     """
-    Read EVERY option exactly in the order supplied by the site.
+    Read the ACTUAL dropdown contents.
 
     IMPORTANT:
-    There is deliberately NO deduplication here.
+    Nothing is filtered, renamed, sorted, or removed.
 
-    If the website contains:
-
-        ASCENSION
-        Ascension
-
-    both remain.
-
-    If the website contains duplicate values with different labels,
-    both remain.
-
-    We use the visible option text, because that is what the user
-    wants monitored.
+    The order is exactly the order of the <option> elements
+    returned by the website.
     """
 
     print()
-    print("Reading country dropdown...")
+    print(
+        "Reading complete country dropdown..."
+    )
 
     options = country_select.locator(
         "option"
@@ -551,58 +452,100 @@ async def read_dropdown(country_select):
     count = await options.count()
 
     print(
-        f"Option elements found: {count}"
+        f"Dropdown contains {count} options."
     )
 
-    dropdown = []
+    countries = []
 
     for i in range(count):
-
         option = options.nth(i)
 
-        try:
-            text = await option.inner_text()
+        name = clean_name(
+            await option.inner_text()
+        )
 
-            # Preserve the actual displayed country name while
-            # removing only surrounding/HTML whitespace.
-            text = clean_text(text)
-
-            if text:
-                dropdown.append(text)
-
-        except Exception as exc:
-            print(
-                f"Could not read option {i}: {exc}"
+        value = (
+            await option.get_attribute(
+                "value"
             )
+        )
 
-    print(
-        f"Read {len(dropdown)} dropdown entries."
+        # We deliberately do not remove anything.
+        # Every option is preserved in its original order.
+        countries.append(
+            {
+                "name": name,
+                "value": value or "",
+            }
+        )
+
+    return countries
+
+
+def write_output(
+    dropdown_countries,
+    unavailable_countries,
+):
+    """
+    Create posta-countries.txt with exactly two lists.
+
+    LIST 1:
+        Complete actual dropdown contents.
+
+    LIST 2:
+        Only countries for which the exact unavailable
+        message appeared after clicking Izračunaj.
+    """
+
+    lines = []
+
+    lines.append(
+        "LIST 1 - MEĐUNARODNI PROMET / DOPISNICA"
+    )
+    lines.append(
+        "=========================================="
     )
 
-    return dropdown
+    for country in dropdown_countries:
+        lines.append(
+            country["name"]
+        )
+
+    lines.append("")
+    lines.append(
+        "LIST 2 - PRIJEM POŠILJAKA SE TRENUTNO NE VRŠI"
+    )
+    lines.append(
+        "=============================================="
+    )
+
+    for country in unavailable_countries:
+        lines.append(country)
+
+    lines.append("")
+
+    save_text(
+        OUTPUT_FILE,
+        "\n".join(lines),
+    )
 
 
-# ============================================================
-# SELECT AIR TRANSPORT
-# ============================================================
-
-async def select_air_transport(frame):
+async def select_avionski_prijenos(
+    frame,
+):
     """
-    Ensure 'Avionski prijenos' is selected.
-
-    Actual checkbox:
+    Select the exact checkbox supplied by the user:
 
         #chbMeDoAvionski
     """
 
     checkbox = frame.locator(
-        AIR_TRANSPORT_SELECTOR
+        "#chbMeDoAvionski"
     )
 
     if await checkbox.count() == 0:
         raise RuntimeError(
-            "Avionski prijenos checkbox "
-            "was not found."
+            "#chbMeDoAvionski was not found."
         )
 
     checkbox = checkbox.first
@@ -611,317 +554,240 @@ async def select_air_transport(frame):
         checked = await checkbox.is_checked()
 
         if not checked:
-            print(
-                "Selecting Avionski prijenos..."
-            )
-
             await checkbox.check(
                 timeout=DEFAULT_TIMEOUT,
                 force=True,
             )
 
             await frame.page.wait_for_timeout(
-                300
+                200
             )
 
-        else:
-            print(
-                "Avionski prijenos already selected."
+    except Exception:
+        # Fallback: click directly.
+        try:
+            await checkbox.click(
+                timeout=DEFAULT_TIMEOUT,
+                force=True,
             )
 
-    except Exception as exc:
-        print(
-            f"Checkbox check failed: {exc}"
-        )
+            await frame.page.wait_for_timeout(
+                200
+            )
 
-        # Fallback to click.
-        await checkbox.click(
-            timeout=DEFAULT_TIMEOUT,
-            force=True,
-        )
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not select "
+                "Avionski prijenos: "
+                f"{exc}"
+            )
 
-        await frame.page.wait_for_timeout(
-            300
-        )
+    return True
 
-
-# ============================================================
-# SET 10 GRAMS
-# ============================================================
 
 async def set_weight_10g(frame):
     """
-    Enter 10 into the actual international air weight field.
+    Enter 10 into:
+
+        #tbxMeDoAvioTezina
     """
 
-    weight = frame.locator(
-        WEIGHT_SELECTOR
+    field = frame.locator(
+        "#tbxMeDoAvioTezina"
     )
 
-    if await weight.count() == 0:
+    if await field.count() == 0:
         raise RuntimeError(
-            "Avionski prijenos weight field "
-            "was not found."
+            "#tbxMeDoAvioTezina was not found."
         )
 
-    weight = weight.first
+    field = field.first
 
-    print(
-        "Entering 10 g..."
+    await field.fill("10")
+
+    return True
+
+
+async def get_body_text(frame):
+    try:
+        return await frame.locator(
+            "body"
+        ).inner_text(timeout=2_000)
+    except Exception:
+        return ""
+
+
+def contains_unavailable_message(
+    text,
+):
+    return (
+        UNAVAILABLE_MESSAGE.casefold()
+        in (text or "").casefold()
     )
 
-    await weight.fill(
-        "10",
-        timeout=DEFAULT_TIMEOUT,
-    )
 
-    # Trigger normal browser input/change events.
-    await weight.press(
-        "Tab"
-    )
-
-    await frame.page.wait_for_timeout(
-        300
-    )
-
-
-# ============================================================
-# CALCULATE
-# ============================================================
-
-async def click_calculate(frame):
+async def calculate_country(
+    frame,
+    country_select,
+    country,
+):
     """
-    Click the actual Izračunaj button.
+    Test one country.
+
+    Returns True ONLY when the exact unavailable message
+    appears.
+
+    Everything else returns False.
+
+    This is intentional: List 2 must contain only countries
+    for which the requested message appears.
     """
 
-    button = frame.locator(
-        CALCULATE_SELECTOR
-    )
+    name = country["name"]
+    value = country["value"]
 
-    if await button.count() == 0:
-        raise RuntimeError(
-            "Izračunaj button "
-            "was not found."
-        )
-
-    button = button.first
-
-    print(
-        "Clicking Izračunaj..."
-    )
-
-    await button.scroll_into_view_if_needed()
+    # ------------------------------------------------------------
+    # Select destination.
+    #
+    # The website uses onchange + ASP.NET postback, so selecting
+    # a country can replace/update controls in the iframe.
+    # ------------------------------------------------------------
 
     try:
-        await button.click(
-            timeout=DEFAULT_TIMEOUT,
-        )
+        if value:
+            await country_select.select_option(
+                value=value
+            )
+        else:
+            await country_select.select_option(
+                label=name
+            )
+
     except Exception as exc:
         print(
-            f"Normal calculate click failed: {exc}"
+            f"  Could not select country: {exc}"
+        )
+        return False
+
+    # Give the ASP.NET postback a short opportunity to update
+    # the international form.
+    await frame.page.wait_for_timeout(
+        250
+    )
+
+    # ------------------------------------------------------------
+    # Re-find controls after the country postback.
+    # ------------------------------------------------------------
+
+    try:
+        await select_avionski_prijenos(
+            frame
         )
 
-        await button.click(
+        await set_weight_10g(
+            frame
+        )
+
+    except Exception as exc:
+        print(
+            f"  Could not prepare calculation: "
+            f"{exc}"
+        )
+        return False
+
+    # ------------------------------------------------------------
+    # Clear any old unavailable message by recording the current
+    # page state before clicking.
+    # ------------------------------------------------------------
+
+    before = await get_body_text(
+        frame
+    )
+
+    # ------------------------------------------------------------
+    # Click exact calculate button:
+    #
+    # #btnMeDoIzracunaj
+    # ------------------------------------------------------------
+
+    calculate = frame.locator(
+        "#btnMeDoIzracunaj"
+    )
+
+    if await calculate.count() == 0:
+        print(
+            "  #btnMeDoIzracunaj not found."
+        )
+        return False
+
+    try:
+        await calculate.first.click(
             timeout=DEFAULT_TIMEOUT,
             force=True,
         )
 
+    except Exception as exc:
+        print(
+            f"  Calculate click failed: {exc}"
+        )
+        return False
 
-# ============================================================
-# WAIT FOR CALCULATION RESULT
-# ============================================================
-
-async def wait_for_calculation_result(frame):
-    """
-    Wait until the exact unavailable message appears OR the page
-    changes enough to indicate that the calculation has completed.
-
-    We do NOT attempt to determine whether a result is available.
-
-    We only care whether the exact unavailable message appears.
-    """
+    # ------------------------------------------------------------
+    # Wait specifically for the requested message.
+    #
+    # We do NOT wait for generic price/result text.
+    # ------------------------------------------------------------
 
     deadline = (
         asyncio.get_running_loop().time()
-        + CALCULATION_TIMEOUT / 1000
+        + RESULT_WAIT_TIMEOUT / 1000
     )
-
-    last_text = ""
 
     while (
         asyncio.get_running_loop().time()
         < deadline
     ):
-
-        await frame.page.wait_for_timeout(
-            300
-        )
-
         text = await get_body_text(
             frame
         )
 
-        last_text = text
+        if contains_unavailable_message(
+            text
+        ):
+            return True
 
-        if UNAVAILABLE_MESSAGE in text:
-            return True, text
-
-        # Check for the message even if it is split across
-        # whitespace/newlines.
-        normalized = " ".join(
-            text.split()
+        await frame.page.wait_for_timeout(
+            100
         )
 
-        if UNAVAILABLE_MESSAGE in normalized:
-            return True, text
+    # ------------------------------------------------------------
+    # Final check.
+    # ------------------------------------------------------------
 
-    return False, last_text
-
-
-# ============================================================
-# TEST ONE COUNTRY
-# ============================================================
-
-async def test_country(
-    frame,
-    country_select,
-    country_name,
-):
-    """
-    Test one dropdown entry.
-
-    Returns True ONLY if the exact unavailable message appears.
-    """
-
-    print()
-    print(
-        f"Testing: {country_name}"
+    after = await get_body_text(
+        frame
     )
 
-    # --------------------------------------------------------
-    # Select the country.
-    #
-    # We select by label/text rather than value because the output
-    # must correspond exactly to the visible dropdown entry.
-    #
-    # If duplicate labels somehow exist, Playwright may require
-    # value-based handling. In that case we fall back to matching
-    # the actual option text.
-    # --------------------------------------------------------
-
-    try:
-        await country_select.select_option(
-            label=country_name,
-            timeout=DEFAULT_TIMEOUT,
-        )
-
-    except Exception as exc:
-
-        print(
-            f"Could not select country by label: {exc}"
-        )
-
-        # Fallback: locate the exact option text and use its value.
-        options = country_select.locator(
-            "option"
-        )
-
-        option_count = await options.count()
-
-        selected = False
-
-        for i in range(option_count):
-
-            option = options.nth(i)
-
-            try:
-                text = clean_text(
-                    await option.inner_text()
-                )
-
-                if text != country_name:
-                    continue
-
-                value = await option.get_attribute(
-                    "value"
-                )
-
-                if value is None:
-                    await country_select.select_option(
-                        index=i,
-                        timeout=DEFAULT_TIMEOUT,
-                    )
-                else:
-                    await country_select.select_option(
-                        value=value,
-                        timeout=DEFAULT_TIMEOUT,
-                    )
-
-                selected = True
-                break
-
-            except Exception:
-                continue
-
-        if not selected:
-            print(
-                f"FAILED TO SELECT: {country_name}"
-            )
-
-            return False
-
-    # Selecting a country causes an ASP.NET postback on this site.
-    await frame.page.wait_for_timeout(
-        700
-    )
-
-    # The postback can replace controls, so reacquire them every time.
-    await select_air_transport(frame)
-
-    await set_weight_10g(frame)
-
-    await click_calculate(frame)
-
-    unavailable, result_text = (
-        await wait_for_calculation_result(
-            frame
-        )
-    )
-
-    if unavailable:
-
-        print(
-            f"UNAVAILABLE MESSAGE FOUND: "
-            f"{country_name}"
-        )
-
+    if contains_unavailable_message(
+        after
+    ):
         return True
-
-    print(
-        f"Unavailable message NOT found: "
-        f"{country_name}"
-    )
 
     return False
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 async def main():
-
     print("=" * 70)
-    print("JP BH POŠTA DAILY COUNTRY MONITOR")
+    print("JP BH POŠTA COUNTRY MONITOR")
     print("=" * 70)
-
+    print()
+    print(f"URL: {URL}")
+    print()
     print(
-        f"URL: {URL}"
+        "Output:"
+        f" {OUTPUT_FILE}"
     )
-
-    print(
-        f"Output: {OUTPUT_FILE}"
-    )
+    print()
 
     async with async_playwright() as playwright:
 
@@ -952,14 +818,16 @@ async def main():
             NAVIGATION_TIMEOUT
         )
 
-        try:
+        frame = None
 
+        try:
             # ====================================================
             # OPEN WEBSITE
             # ====================================================
 
-            print()
-            print("Opening website...")
+            print(
+                "Opening calculator page..."
+            )
 
             try:
                 await page.goto(
@@ -968,23 +836,15 @@ async def main():
                     timeout=NAVIGATION_TIMEOUT,
                 )
 
-            except PlaywrightTimeoutError as exc:
-
+            except PlaywrightTimeoutError:
                 print(
-                    "Navigation timeout occurred."
-                )
-
-                print(
-                    "Continuing because the page may "
+                    "Navigation timeout; "
+                    "continuing because the page may "
                     "already be usable."
                 )
 
-                print(
-                    str(exc)
-                )
-
             await page.wait_for_timeout(
-                2_000
+                1_500
             )
 
             # ====================================================
@@ -997,8 +857,7 @@ async def main():
 
             if frame is None:
                 raise RuntimeError(
-                    "Could not locate the BH Pošta "
-                    "calculator iframe."
+                    "Could not locate calculator iframe."
                 )
 
             print()
@@ -1010,13 +869,9 @@ async def main():
             # SELECT MEĐUNARODNI PROMET
             # ====================================================
 
-            international_selected = (
-                await activate_international(
-                    frame
-                )
-            )
-
-            if not international_selected:
+            if not await click_international(
+                frame
+            ):
                 raise RuntimeError(
                     "Could not select "
                     "Međunarodni promet."
@@ -1026,199 +881,212 @@ async def main():
             # SELECT DOPISNICA
             # ====================================================
 
-            dopisnica_selected = (
-                await activate_dopisnica(
-                    frame
+            if not await click_dopisnica(
+                frame
+            ):
+                raise RuntimeError(
+                    "Could not select Dopisnica."
                 )
+
+            # ====================================================
+            # WAIT FOR COUNTRY DROPDOWN
+            # ====================================================
+
+            print()
+            print(
+                "Waiting for international "
+                "country dropdown..."
             )
 
-            if not dopisnica_selected:
-                raise RuntimeError(
-                    "Could not select "
-                    "Dopisnica."
-                )
-
-            # ====================================================
-            # WAIT FOR INTERNATIONAL DROPDOWN
-            # ====================================================
-
             country_select = (
-                await wait_for_country_dropdown(
+                await wait_for_country_select(
                     frame
                 )
             )
 
             if country_select is None:
                 raise RuntimeError(
-                    "International country dropdown "
-                    "#ddlMeDoOdrediste was not found."
+                    "Country dropdown "
+                    "#ddlMeDoOdrediste "
+                    "was not found after selecting "
+                    "Međunarodni promet and Dopisnica."
                 )
 
             # ====================================================
-            # LIST 1
+            # READ LIST 1
             # ====================================================
 
-            dropdown = await read_dropdown(
-                country_select
+            dropdown_countries = (
+                await read_dropdown_options(
+                    country_select
+                )
             )
 
-            if not dropdown:
+            if not dropdown_countries:
                 raise RuntimeError(
-                    "Country dropdown is empty."
+                    "The country dropdown "
+                    "contained no options."
                 )
 
-            # ====================================================
-            # WRITE LIST 1 IMMEDIATELY
-            #
-            # This ensures the file exists and contains the exact
-            # dropdown even if something goes wrong later.
-            # ====================================================
-
-            save_output(
-                dropdown,
-                [],
+            print()
+            print(
+                "Complete dropdown captured."
             )
 
             # ====================================================
-            # LIST 2
+            # INITIAL OUTPUT
+            #
+            # This means posta-countries.txt exists even while
+            # testing is still underway.
             # ====================================================
 
-            unavailable = []
+            unavailable_countries = []
+
+            write_output(
+                dropdown_countries,
+                unavailable_countries,
+            )
+
+            # ====================================================
+            # TEST COUNTRIES
+            # ====================================================
 
             print()
             print("=" * 70)
-            print("TESTING COUNTRIES")
+            print(
+                "TESTING COUNTRIES FOR "
+                "UNAVAILABLE MESSAGE"
+            )
             print("=" * 70)
+            print()
 
-            # ----------------------------------------------------
-            # IMPORTANT:
-            #
-            # We iterate over the dropdown entries exactly as read.
-            #
-            # No sorting.
-            # No deduplication.
-            # No filtering.
-            #
-            # If the website contains the same visible name twice,
-            # both entries are tested.
-            # ----------------------------------------------------
+            overall_deadline = (
+                asyncio.get_running_loop().time()
+                + OVERALL_TIMEOUT / 1000
+            )
 
-            for index, country_name in enumerate(
-                dropdown,
+            for index, country in enumerate(
+                dropdown_countries,
                 1,
             ):
+                # ------------------------------------------------
+                # Overall safety timeout.
+                # ------------------------------------------------
 
-                print()
+                if (
+                    asyncio.get_running_loop().time()
+                    >= overall_deadline
+                ):
+                    print()
+                    print(
+                        "Overall timeout reached."
+                    )
+                    print(
+                        "Stopping country testing."
+                    )
+                    break
+
+                name = country["name"]
+
                 print(
-                    f"[{index}] {country_name}"
+                    f"[{index}/{len(dropdown_countries)}] "
+                    f"{name}",
+                    flush=True,
                 )
 
                 try:
-
-                    # Reacquire the selector because ASP.NET
-                    # postbacks may replace DOM elements.
-                    country_select = (
-                        await wait_for_country_dropdown(
-                            frame,
-                            timeout_ms=15_000,
-                        )
-                    )
-
-                    if country_select is None:
-                        print(
-                            "Country dropdown disappeared."
-                        )
-
-                        # Try returning to international calculator.
-                        await activate_international(
-                            frame
-                        )
-
-                        await frame.page.wait_for_timeout(
-                            1_000
-                        )
-
-                        country_select = (
-                            await wait_for_country_dropdown(
-                                frame,
-                                timeout_ms=15_000,
-                            )
-                        )
-
-                    if country_select is None:
-                        print(
-                            f"Could not recover country "
-                            f"dropdown for {country_name}."
-                        )
-
-                        continue
-
-                    is_unavailable = (
-                        await test_country(
+                    unavailable = (
+                        await calculate_country(
                             frame,
                             country_select,
-                            country_name,
+                            country,
                         )
-                    )
-
-                    if is_unavailable:
-
-                        unavailable.append(
-                            country_name
-                        )
-
-                    # ------------------------------------------------
-                    # SAVE AFTER EVERY COUNTRY
-                    #
-                    # This keeps the output file current even if a
-                    # later country causes an unexpected failure.
-                    # ------------------------------------------------
-
-                    save_output(
-                        dropdown,
-                        unavailable,
-                    )
-
-                    await page.wait_for_timeout(
-                        BETWEEN_DESTINATIONS_MS
                     )
 
                 except Exception as exc:
-
-                    # An unexpected error for one country does NOT
-                    # automatically put that country into UNAVAILABLE.
-                    #
-                    # Only the exact website message is allowed to
-                    # add a country to List 2.
-
                     print(
-                        f"ERROR testing {country_name}: "
-                        f"{type(exc).__name__}: {exc}"
+                        f"  ERROR: {exc}"
+                    )
+                    unavailable = False
+
+                if unavailable:
+                    print(
+                        "  -> UNAVAILABLE MESSAGE FOUND"
                     )
 
-                    # Continue with the next country.
-                    continue
+                    unavailable_countries.append(
+                        name
+                    )
+
+                else:
+                    print(
+                        "  -> message not found"
+                    )
+
+                # ------------------------------------------------
+                # IMPORTANT:
+                #
+                # Save after every country.
+                #
+                # If GitHub Actions stops unexpectedly, the file
+                # still contains the work completed so far.
+                # ------------------------------------------------
+
+                write_output(
+                    dropdown_countries,
+                    unavailable_countries,
+                )
+
+                await page.wait_for_timeout(
+                    BETWEEN_COUNTRIES_MS
+                )
 
             # ====================================================
             # FINAL OUTPUT
             # ====================================================
 
-            save_output(
-                dropdown,
-                unavailable,
+            write_output(
+                dropdown_countries,
+                unavailable_countries,
             )
 
             print()
             print("=" * 70)
-            print("MONITOR COMPLETED")
+            print("MONITOR COMPLETE")
             print("=" * 70)
+            print()
+            print(
+                f"List 1 entries: "
+                f"{len(dropdown_countries)}"
+            )
+            print(
+                f"List 2 entries: "
+                f"{len(unavailable_countries)}"
+            )
+            print()
+            print(
+                f"Created: {OUTPUT_FILE}"
+            )
+            print()
+            print("List 2:")
+            print("-" * 70)
+
+            for name in unavailable_countries:
+                print(name)
+
+            print()
+            print(
+                "Output file contents:"
+            )
+            print("-" * 70)
 
             print(
-                f"Output file: {OUTPUT_FILE}"
+                OUTPUT_FILE.read_text(
+                    encoding="utf-8"
+                )
             )
 
         finally:
-
             try:
                 await context.close()
             except Exception:
@@ -1230,19 +1098,22 @@ async def main():
                 pass
 
 
-# ============================================================
-# ENTRY POINT
-# ============================================================
-
 if __name__ == "__main__":
-
     try:
         asyncio.run(main())
 
     except KeyboardInterrupt:
-
         print(
             "Monitor interrupted."
         )
-
         sys.exit(130)
+
+    except Exception as exc:
+        print()
+        print("=" * 70)
+        print("MONITOR FAILED")
+        print("=" * 70)
+        print(
+            f"{type(exc).__name__}: {exc}"
+        )
+        sys.exit(1)
