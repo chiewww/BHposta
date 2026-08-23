@@ -30,15 +30,9 @@ DIAGNOSTIC_PNG_FILE = Path("diagnostic.png")
 
 NAVIGATION_TIMEOUT = 30_000
 DEFAULT_TIMEOUT = 5_000
-
-# Maximum time spent testing destinations.
-# This prevents a broken calculator from making GitHub Actions run forever.
-DESTINATION_TEST_TIMEOUT = 45 * 60 * 1000
-
-# Time allowed for one destination calculation.
+FRAME_WAIT_TIMEOUT = 30_000
 PER_DESTINATION_TIMEOUT = 7_000
-
-# Small pause between calculator operations.
+OVERALL_TEST_TIMEOUT = 45 * 60 * 1000
 BETWEEN_DESTINATIONS_MS = 150
 
 
@@ -83,39 +77,74 @@ async def frame_content(frame):
 
 
 async def find_calculator_frame(page):
+    """
+    Locate the BH Pošta calculator iframe.
+
+    IMPORTANT:
+    The calculator iframe can temporarily appear as about:blank.
+    Therefore we repeatedly inspect all frames and prefer the known
+    bhpwebout.posta.ba URL.
+    """
+
     section("LOCATING CALCULATOR IFRAME")
 
-    frames = page.frames
-    print(f"Number of frames: {len(frames)}")
+    for attempt in range(1, 16):
+        frames = page.frames
 
-    for index, frame in enumerate(frames):
-        url = frame.url or ""
-        print(f"Checking frame {index}: {url}")
-
-        if CALCULATOR_IFRAME_URL_PART.lower() in url.lower():
-            print(f"FOUND CALCULATOR FRAME: {index}")
-            print(f"Calculator URL: {url}")
-            return frame
-
-    print("URL match not found. Inspecting frame HTML...")
-
-    for index, frame in enumerate(frames):
-        html = await frame_content(frame)
-
-        if not html:
-            continue
-
-        markers = (
-            "ddlUnObPiTez",
-            "ddlMeObPiOderdiste",
-            "Međunarodni promet",
-            "Kalkulator cijena",
+        print(
+            f"Frame search attempt {attempt}/15. "
+            f"Number of frames: {len(frames)}"
         )
 
-        if any(marker in html for marker in markers):
-            print(f"FOUND calculator by HTML: frame {index}")
-            print(f"Calculator URL: {frame.url}")
-            return frame
+        # First: URL match.
+        for index, frame in enumerate(frames):
+            url = frame.url or ""
+
+            print(
+                f"Checking frame {index}: {url}"
+            )
+
+            if (
+                CALCULATOR_IFRAME_URL_PART.casefold()
+                in url.casefold()
+            ):
+                print(
+                    f"FOUND CALCULATOR FRAME: {index}"
+                )
+                print(
+                    f"Calculator URL: {url}"
+                )
+                return frame
+
+        # Second: known calculator controls.
+        for index, frame in enumerate(frames):
+            html = await frame_content(frame)
+
+            if not html:
+                continue
+
+            markers = (
+                "ddlUnObPiTez",
+                "ddlMeObPiOderdiste",
+                "ddlMeObPiTezine",
+                "Međunarodni promet",
+                "Kalkulator cijena",
+            )
+
+            if any(
+                marker in html
+                for marker in markers
+            ):
+                print(
+                    f"FOUND calculator by HTML: frame {index}"
+                )
+                print(
+                    f"Calculator URL: {frame.url}"
+                )
+                return frame
+
+        if attempt < 15:
+            await page.wait_for_timeout(1_000)
 
     return None
 
@@ -125,9 +154,9 @@ async def save_calculator_diagnostics(frame):
     save_text(IFRAME_FILE, html)
 
     try:
-        text = await frame.locator("body").inner_text(
-            timeout=DEFAULT_TIMEOUT
-        )
+        text = await frame.locator(
+            "body"
+        ).inner_text(timeout=DEFAULT_TIMEOUT)
     except Exception:
         text = ""
 
@@ -137,8 +166,16 @@ async def save_calculator_diagnostics(frame):
 
 
 async def activate_international(frame):
+    """
+    Activate the DevExpress 'Međunarodni promet' tab.
+
+    We deliberately inspect the actual HTML rather than relying on
+    an ASP.NET control ID.
+    """
+
     section("ACTIVATING MEĐUNARODNI PROMET")
 
+    # First, try the exact visible text.
     try:
         candidates = frame.get_by_text(
             "Međunarodni promet",
@@ -146,7 +183,10 @@ async def activate_international(frame):
         )
 
         count = await candidates.count()
-        print(f"Exact text candidates: {count}")
+
+        print(
+            f"Exact text candidates: {count}"
+        )
 
         for i in range(count):
             candidate = candidates.nth(i)
@@ -157,70 +197,91 @@ async def activate_international(frame):
             except Exception:
                 continue
 
+            print(
+                "Found visible Međunarodni promet."
+            )
+
             try:
-                print("Found visible Međunarodni promet.")
+                tag = await candidate.evaluate(
+                    "(el) => el.tagName"
+                )
+                outer = await candidate.evaluate(
+                    "(el) => el.outerHTML"
+                )
 
-                try:
-                    print(
-                        "Tag:",
-                        await candidate.evaluate(
-                            "(el) => el.tagName"
-                        ),
-                    )
-                    print(
-                        "HTML:",
-                        (
-                            await candidate.evaluate(
-                                "(el) => el.outerHTML"
-                            )
-                        )[:1000],
-                    )
-                except Exception:
-                    pass
+                print(f"Tag: {tag}")
+                print(
+                    f"HTML: {outer[:1500]}"
+                )
+            except Exception:
+                pass
 
-                try:
-                    await candidate.click(
-                        timeout=DEFAULT_TIMEOUT,
-                        force=True,
-                    )
-                    print("Clicked international tab.")
-                    await frame.page.wait_for_timeout(800)
-                    return True
-                except Exception as exc:
-                    print(
-                        f"Direct click failed: {exc}"
-                    )
+            # Try direct click.
+            try:
+                await candidate.click(
+                    timeout=DEFAULT_TIMEOUT,
+                    force=True,
+                )
 
-                for xpath in (
-                    "xpath=ancestor::td[1]",
-                    "xpath=ancestor::a[1]",
-                    "xpath=ancestor::div[1]",
-                ):
-                    try:
-                        parent = candidate.locator(xpath)
+                print(
+                    "Clicked Međunarodni promet."
+                )
 
-                        if await parent.count():
-                            await parent.first.click(
-                                timeout=DEFAULT_TIMEOUT,
-                                force=True,
-                            )
-                            print(
-                                "Clicked clickable ancestor."
-                            )
-                            await frame.page.wait_for_timeout(800)
-                            return True
-                    except Exception:
-                        pass
+                await frame.page.wait_for_timeout(
+                    1_000
+                )
+
+                return True
 
             except Exception as exc:
                 print(
-                    f"Error with candidate {i}: {exc}"
+                    f"Direct click failed: {exc}"
                 )
 
-        # Fallback substring search.
+            # Try clickable ancestors.
+            for xpath in (
+                "xpath=ancestor::td[1]",
+                "xpath=ancestor::a[1]",
+                "xpath=ancestor::div[1]",
+                "xpath=parent::*",
+            ):
+                try:
+                    parent = candidate.locator(
+                        xpath
+                    )
+
+                    if await parent.count() == 0:
+                        continue
+
+                    await parent.first.click(
+                        timeout=DEFAULT_TIMEOUT,
+                        force=True,
+                    )
+
+                    print(
+                        f"Clicked ancestor: {xpath}"
+                    )
+
+                    await frame.page.wait_for_timeout(
+                        1_000
+                    )
+
+                    return True
+
+                except Exception:
+                    continue
+
+    except Exception as exc:
+        print(
+            f"Exact text search failed: {exc}"
+        )
+
+    # Substring fallback.
+    try:
         candidates = frame.get_by_text(
             "Međunarodni promet"
         )
+
         count = await candidates.count()
 
         print(
@@ -239,7 +300,15 @@ async def activate_international(frame):
                     force=True,
                 )
 
-                await frame.page.wait_for_timeout(800)
+                print(
+                    "Clicked international tab "
+                    "using substring search."
+                )
+
+                await frame.page.wait_for_timeout(
+                    1_000
+                )
+
                 return True
 
             except Exception:
@@ -247,13 +316,98 @@ async def activate_international(frame):
 
     except Exception as exc:
         print(
-            f"Could not activate international calculator: {exc}"
+            f"Substring search failed: {exc}"
+        )
+
+    # Last fallback: inspect elements whose text contains the phrase.
+    try:
+        locator = frame.locator(
+            "span,td,a,div"
+        )
+
+        count = await locator.count()
+
+        for i in range(count):
+            element = locator.nth(i)
+
+            try:
+                if not await element.is_visible():
+                    continue
+
+                text = await element.inner_text()
+
+                if (
+                    "Međunarodni promet"
+                    not in text
+                ):
+                    continue
+
+                print(
+                    "Found international tab "
+                    "through generic element search."
+                )
+
+                await element.click(
+                    timeout=DEFAULT_TIMEOUT,
+                    force=True,
+                )
+
+                await frame.page.wait_for_timeout(
+                    1_000
+                )
+
+                return True
+
+            except Exception:
+                continue
+
+    except Exception as exc:
+        print(
+            f"Generic tab search failed: {exc}"
         )
 
     return False
 
 
 async def find_country_select(frame):
+    """
+    Find the international destination selector.
+
+    Known working ID from the successful run:
+
+        ddlMeObPiOderdiste
+
+    We use that ID first, then fall back to inspecting all selects.
+    """
+
+    print()
+    print("LOCATING COUNTRY DROPDOWN")
+
+    # Known selector.
+    try:
+        known = frame.locator(
+            "#ddlMeObPiOderdiste"
+        )
+
+        if await known.count() > 0:
+            try:
+                if await known.first.is_visible():
+                    option_count = await known.first.locator(
+                        "option"
+                    ).count()
+
+                    if option_count >= 20:
+                        print(
+                            "FOUND known country selector:"
+                            " #ddlMeObPiOderdiste"
+                        )
+
+                        return known.first
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     selects = frame.locator("select")
     count = await selects.count()
 
@@ -270,9 +424,8 @@ async def find_country_select(frame):
         "Belgija",
         "Bosna i Hercegovina",
         "Hrvatska",
-        "Njemacka",
         "Njemačka",
-        "SAD",
+        "Njemacka",
         "Sjedinjene",
         "Velika Britanija",
     )
@@ -284,17 +437,28 @@ async def find_country_select(frame):
         select = selects.nth(i)
 
         try:
-            sid = await select.get_attribute("id")
-            name = await select.get_attribute("name")
+            sid = await select.get_attribute(
+                "id"
+            )
+            name = await select.get_attribute(
+                "name"
+            )
             text = await select.inner_text()
             option_count = await select.locator(
                 "option"
             ).count()
 
             print(
-                f"SELECT #{i}: id={sid}, "
-                f"name={name}, "
-                f"options={option_count}"
+                f"SELECT #{i}"
+            )
+            print(
+                f"  id = {sid}"
+            )
+            print(
+                f"  name = {name}"
+            )
+            print(
+                f"  options = {option_count}"
             )
 
             score = sum(
@@ -313,13 +477,13 @@ async def find_country_select(frame):
 
         except Exception as exc:
             print(
-                f"Error inspecting select #{i}: {exc}"
+                f"Could not inspect select #{i}: {exc}"
             )
 
     if best is not None:
-        sid = await best.get_attribute("id")
         print(
-            f"COUNTRY SELECT FOUND: {sid}"
+            "COUNTRY SELECT FOUND:"
+            f" {await best.get_attribute('id')}"
         )
         return best
 
@@ -339,12 +503,16 @@ async def wait_for_country_select(
         asyncio.get_running_loop().time()
         < deadline
     ):
-        select = await find_country_select(frame)
+        select = await find_country_select(
+            frame
+        )
 
         if select is not None:
             return select
 
-        await frame.page.wait_for_timeout(400)
+        await frame.page.wait_for_timeout(
+            500
+        )
 
     return None
 
@@ -364,7 +532,7 @@ async def read_destinations(select):
     count = await options.count()
 
     print(
-        f"Destination option count: {count}"
+        f"Total option elements: {count}"
     )
 
     destinations = []
@@ -385,14 +553,20 @@ async def read_destinations(select):
             name = clean_name(
                 await option.inner_text()
             )
+
             value = (
-                await option.get_attribute("value")
+                await option.get_attribute(
+                    "value"
+                )
             )
 
             if not name:
                 continue
 
-            if name.casefold() in placeholders:
+            if (
+                name.casefold()
+                in placeholders
+            ):
                 continue
 
             destinations.append(
@@ -404,11 +578,9 @@ async def read_destinations(select):
 
         except Exception as exc:
             print(
-                f"Could not read destination {i}: "
-                f"{exc}"
+                f"Could not read option {i}: {exc}"
             )
 
-    # Deduplicate by value where possible.
     unique = []
     seen = set()
 
@@ -431,261 +603,175 @@ async def read_destinations(select):
     return unique
 
 
-async def discover_controls(frame):
+def write_results(
+    results,
+    total,
+    status="RUNNING",
+):
     """
-    Discover the international calculator controls.
+    ALWAYS write calculator-results.txt.
 
-    This intentionally does not assume that the site uses a particular
-    ASP.NET control ID for the calculate button.
-    """
-
-    section("DISCOVERING CALCULATOR CONTROLS")
-
-    selects = frame.locator("select")
-    select_count = await selects.count()
-
-    for i in range(select_count):
-        select = selects.nth(i)
-
-        try:
-            sid = await select.get_attribute("id")
-            name = await select.get_attribute("name")
-            option_count = await select.locator(
-                "option"
-            ).count()
-
-            print(
-                f"select[{i}] "
-                f"id={sid} "
-                f"name={name} "
-                f"options={option_count}"
-            )
-        except Exception:
-            pass
-
-    inputs = frame.locator("input")
-    input_count = await inputs.count()
-
-    print(
-        f"Input count: {input_count}"
-    )
-
-    for i in range(input_count):
-        inp = inputs.nth(i)
-
-        try:
-            iid = await inp.get_attribute("id")
-            name = await inp.get_attribute("name")
-            typ = await inp.get_attribute("type")
-            value = await inp.get_attribute("value")
-            title = await inp.get_attribute("title")
-
-            print(
-                f"input[{i}] "
-                f"id={iid} "
-                f"name={name} "
-                f"type={typ} "
-                f"value={value} "
-                f"title={title}"
-            )
-        except Exception:
-            pass
-
-    buttons = frame.locator(
-        "button, input[type='button'], "
-        "input[type='submit'], a"
-    )
-
-    button_count = await buttons.count()
-
-    print(
-        f"Button/link count: {button_count}"
-    )
-
-    for i in range(min(button_count, 100)):
-        button = buttons.nth(i)
-
-        try:
-            if not await button.is_visible():
-                continue
-
-            text = clean_name(
-                await button.inner_text()
-            )
-
-            value = (
-                await button.get_attribute("value")
-            )
-            bid = (
-                await button.get_attribute("id")
-            )
-
-            combined = clean_name(
-                f"{text} {value or ''}"
-            )
-
-            if (
-                "izrač" in combined.casefold()
-                or "izrac" in combined.casefold()
-                or "calculate" in combined.casefold()
-            ):
-                print(
-                    f"CALCULATE CANDIDATE: "
-                    f"id={bid}, "
-                    f"text={combined}"
-                )
-
-        except Exception:
-            pass
-
-
-async def find_calculate_control(frame):
-    """
-    Locate the actual calculation control.
-
-    Returns a locator or None.
+    This function is deliberately safe to call even when results is
+    empty. That guarantees that the artifact exists from the beginning.
     """
 
-    # Most specific text first.
-    text_candidates = [
-        "Izračun",
-        "Izračunaj",
-        "Izracun",
-        "Izracunaj",
+    available = [
+        r for r in results
+        if r["status"] == "AVAILABLE"
     ]
 
-    for text in text_candidates:
-        try:
-            locator = frame.get_by_text(
-                text,
-                exact=False,
+    unavailable = [
+        r for r in results
+        if r["status"] == "UNAVAILABLE"
+    ]
+
+    unknown = [
+        r for r in results
+        if r["status"] == "UNKNOWN"
+    ]
+
+    lines = []
+
+    lines.append(
+        "JP BH POŠTA CALCULATOR DESTINATION TEST"
+    )
+    lines.append("=" * 70)
+    lines.append("")
+    lines.append(
+        f"STATUS: {status}"
+    )
+    lines.append(
+        f"DESTINATIONS DISCOVERED: {total}"
+    )
+    lines.append(
+        f"DESTINATIONS TESTED: {len(results)}"
+    )
+    lines.append(
+        f"AVAILABLE: {len(available)}"
+    )
+    lines.append(
+        f"UNAVAILABLE: {len(unavailable)}"
+    )
+    lines.append(
+        f"UNKNOWN: {len(unknown)}"
+    )
+    lines.append("")
+
+    lines.append(
+        "AVAILABLE DESTINATIONS"
+    )
+    lines.append("-" * 70)
+
+    if available:
+        for item in available:
+            price = item.get(
+                "prices",
+                "",
             )
 
-            count = await locator.count()
+            if price:
+                lines.append(
+                    f"{item['name']} "
+                    f"[value={item['value']}] "
+                    f"| {price}"
+                )
+            else:
+                lines.append(
+                    f"{item['name']} "
+                    f"[value={item['value']}]"
+                )
+    else:
+        lines.append("None.")
 
-            for i in range(count):
-                candidate = locator.nth(i)
+    lines.append("")
+    lines.append(
+        "UNAVAILABLE DESTINATIONS"
+    )
+    lines.append("-" * 70)
 
-                try:
-                    if await candidate.is_visible():
-                        return candidate
-                except Exception:
-                    pass
+    if unavailable:
+        for item in unavailable:
+            lines.append(
+                f"{item['name']} "
+                f"[value={item['value']}] "
+                f"| {item['reason']}"
+            )
+    else:
+        lines.append("None.")
 
-        except Exception:
-            pass
+    lines.append("")
+    lines.append(
+        "UNKNOWN / NEEDS REVIEW"
+    )
+    lines.append("-" * 70)
 
-    # Search buttons/inputs by value/title/alt.
-    controls = frame.locator(
-        "button, input[type='button'], "
-        "input[type='submit'], a"
+    if unknown:
+        for item in unknown:
+            lines.append(
+                f"{item['name']} "
+                f"[value={item['value']}] "
+                f"| {item['reason']}"
+            )
+    else:
+        lines.append("None.")
+
+    save_text(
+        RESULTS_FILE,
+        "\n".join(lines) + "\n",
     )
 
-    count = await controls.count()
+    # countries.txt contains ONLY confirmed AVAILABLE destinations.
+    countries = [
+        item["name"]
+        for item in available
+    ]
 
-    for i in range(count):
-        control = controls.nth(i)
+    save_text(
+        COUNTRIES_FILE,
+        (
+            "\n".join(countries) + "\n"
+            if countries
+            else ""
+        ),
+    )
 
-        try:
-            if not await control.is_visible():
-                continue
 
-            text = clean_name(
-                await control.inner_text()
+def extract_prices(text):
+    patterns = [
+        r"\b\d+(?:[.,]\d{1,2})?\s*(?:KM|BAM)\b",
+        r"\b(?:KM|BAM)\s*\d+(?:[.,]\d{1,2})?\b",
+    ]
+
+    found = []
+
+    for pattern in patterns:
+        found.extend(
+            re.findall(
+                pattern,
+                text,
+                flags=re.IGNORECASE,
             )
-            value = (
-                await control.get_attribute("value")
-            )
-            title = (
-                await control.get_attribute("title")
-            )
+        )
 
-            combined = clean_name(
-                f"{text} {value or ''} {title or ''}"
-            ).casefold()
+    result = []
+    seen = set()
 
-            if (
-                "izrač" in combined
-                or "izrac" in combined
-                or "calculate" in combined
-            ):
-                return control
+    for value in found:
+        key = value.casefold()
 
-        except Exception:
-            pass
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
 
-    return None
-
-
-async def choose_first_weight(frame):
-    """
-    Select the first international weight band if needed.
-    """
-
-    selects = frame.locator("select")
-    count = await selects.count()
-
-    for i in range(count):
-        select = selects.nth(i)
-
-        try:
-            sid = await select.get_attribute("id")
-            options = select.locator("option")
-            option_count = await options.count()
-
-            if (
-                sid == "ddlMeObPiTezine"
-                or option_count == 7
-            ):
-                values = []
-
-                for j in range(option_count):
-                    option = options.nth(j)
-
-                    values.append(
-                        {
-                            "value": (
-                                await option.get_attribute(
-                                    "value"
-                                )
-                            ),
-                            "text": clean_name(
-                                await option.inner_text()
-                            ),
-                        }
-                    )
-
-                if values:
-                    first = values[0]
-
-                    await select.select_option(
-                        value=first["value"]
-                    )
-
-                    await frame.page.wait_for_timeout(
-                        250
-                    )
-
-                    print(
-                        "Weight selected:",
-                        first["text"],
-                    )
-
-                    return select
-
-        except Exception:
-            continue
-
-    return None
+    return result
 
 
 def text_has_error(text):
     lowered = text.casefold()
 
-    error_markers = [
+    markers = [
         "nije moguće",
         "nije moguce",
-        "nije dozvoljeno",
         "nije dostupno",
         "nije dostupna",
         "nije dostupan",
@@ -709,56 +795,11 @@ def text_has_error(text):
 
     return any(
         marker in lowered
-        for marker in error_markers
+        for marker in markers
     )
 
 
-def extract_prices(text):
-    """
-    Find likely KM/BAM price values in calculator output.
-
-    We intentionally keep this permissive because the site may format
-    prices differently.
-    """
-
-    patterns = [
-        r"\b\d+(?:[.,]\d{1,2})?\s*(?:KM|BAM)\b",
-        r"\b(?:KM|BAM)\s*\d+(?:[.,]\d{1,2})?\b",
-    ]
-
-    found = []
-
-    for pattern in patterns:
-        found.extend(
-            re.findall(
-                pattern,
-                text,
-                flags=re.IGNORECASE,
-            )
-        )
-
-    # Deduplicate.
-    result = []
-    seen = set()
-
-    for value in found:
-        key = value.casefold()
-
-        if key not in seen:
-            seen.add(key)
-            result.append(value)
-
-    return result
-
-
-def looks_like_calculation_result(text):
-    """
-    Determine whether the page contains an actual result.
-
-    We don't require a price in every case because the calculator may
-    display a numeric result without the KM/BAM suffix.
-    """
-
+def looks_like_result(text):
     if text_has_error(text):
         return False
 
@@ -769,17 +810,17 @@ def looks_like_calculation_result(text):
 
     lowered = text.casefold()
 
-    result_markers = [
+    markers = (
         "cijena",
         "cijene",
         "iznos",
         "price",
         "rezultat",
-    ]
+    )
 
     return any(
         marker in lowered
-        for marker in result_markers
+        for marker in markers
     )
 
 
@@ -787,9 +828,140 @@ async def get_body_text(frame):
     try:
         return await frame.locator(
             "body"
-        ).inner_text(timeout=3000)
+        ).inner_text(timeout=3_000)
     except Exception:
         return ""
+
+
+async def choose_first_weight(frame):
+    """
+    Select the first international weight option.
+
+    Known working ID:
+
+        ddlMeObPiTezine
+    """
+
+    try:
+        known = frame.locator(
+            "#ddlMeObPiTezine"
+        )
+
+        if await known.count() > 0:
+            option_count = await known.first.locator(
+                "option"
+            ).count()
+
+            if option_count > 0:
+                first = known.first.locator(
+                    "option"
+                ).first
+
+                value = await first.get_attribute(
+                    "value"
+                )
+
+                if value:
+                    await known.first.select_option(
+                        value=value
+                    )
+                else:
+                    await known.first.select_option(
+                        index=0
+                    )
+
+                await frame.page.wait_for_timeout(
+                    250
+                )
+
+                return known.first
+
+    except Exception as exc:
+        print(
+            f"Weight selection warning: {exc}"
+        )
+
+    return None
+
+
+async def find_calculate_control(frame):
+    """
+    Search for the calculator's actual calculation control.
+    """
+
+    texts = (
+        "Izračun",
+        "Izračunaj",
+        "Izracun",
+        "Izracunaj",
+    )
+
+    for text in texts:
+        try:
+            locator = frame.get_by_text(
+                text,
+                exact=False,
+            )
+
+            count = await locator.count()
+
+            for i in range(count):
+                candidate = locator.nth(i)
+
+                try:
+                    if await candidate.is_visible():
+                        return candidate
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    controls = frame.locator(
+        "button, input[type='button'], "
+        "input[type='submit'], a"
+    )
+
+    count = await controls.count()
+
+    for i in range(count):
+        control = controls.nth(i)
+
+        try:
+            if not await control.is_visible():
+                continue
+
+            text = clean_name(
+                await control.inner_text()
+            )
+
+            value = (
+                await control.get_attribute(
+                    "value"
+                )
+            )
+
+            title = (
+                await control.get_attribute(
+                    "title"
+                )
+            )
+
+            combined = clean_name(
+                f"{text} {value or ''} {title or ''}"
+            ).casefold()
+
+            if (
+                "izrač" in combined
+                or "izrac" in combined
+                or "calculate" in combined
+            ):
+                return control
+
+        except Exception:
+            continue
+
+    return None
 
 
 async def calculate_destination(
@@ -801,16 +973,14 @@ async def calculate_destination(
     Test one destination.
 
     Returns:
-        AVAILABLE
-        UNAVAILABLE
-        UNKNOWN
+        status, reason, text
     """
 
     name = destination["name"]
     value = destination["value"]
 
     try:
-        # Select the destination.
+        # Select destination.
         if value:
             await country_select.select_option(
                 value=value
@@ -820,13 +990,18 @@ async def calculate_destination(
                 label=name
             )
 
-        # Give the site's AJAX/DevExpress code a chance to react.
-        await frame.page.wait_for_timeout(300)
+        await frame.page.wait_for_timeout(
+            400
+        )
 
-        # Make sure a valid international weight exists.
-        await choose_first_weight(frame)
+        # Select first weight.
+        await choose_first_weight(
+            frame
+        )
 
-        before = await get_body_text(frame)
+        before = await get_body_text(
+            frame
+        )
 
         calculate = await find_calculate_control(
             frame
@@ -839,7 +1014,6 @@ async def calculate_destination(
                 before,
             )
 
-        # Click the calculator.
         try:
             await calculate.click(
                 timeout=DEFAULT_TIMEOUT,
@@ -852,7 +1026,6 @@ async def calculate_destination(
                 before,
             )
 
-        # Wait briefly for AJAX.
         deadline = (
             asyncio.get_running_loop().time()
             + PER_DESTINATION_TIMEOUT / 1000
@@ -865,21 +1038,23 @@ async def calculate_destination(
             < deadline
         ):
             await frame.page.wait_for_timeout(
-                350
+                400
             )
 
             last_text = await get_body_text(
                 frame
             )
 
-            if text_has_error(last_text):
+            if text_has_error(
+                last_text
+            ):
                 return (
                     "UNAVAILABLE",
                     "Calculator displayed an unavailable/error message",
                     last_text,
                 )
 
-            if looks_like_calculation_result(
+            if looks_like_result(
                 last_text
             ):
                 return (
@@ -888,149 +1063,18 @@ async def calculate_destination(
                     last_text,
                 )
 
-        # No positive result after timeout.
         return (
             "UNKNOWN",
-            "No definitive calculator result detected",
+            "No definitive result detected",
             last_text,
         )
 
     except Exception as exc:
         return (
             "UNKNOWN",
-            f"Exception while testing destination: {exc}",
+            f"Exception: {exc}",
             "",
         )
-
-
-def write_results(
-    results,
-    total,
-    timed_out=False,
-):
-    section("WRITING CALCULATOR RESULTS")
-
-    available = [
-        item
-        for item in results
-        if item["status"] == "AVAILABLE"
-    ]
-
-    unavailable = [
-        item
-        for item in results
-        if item["status"] == "UNAVAILABLE"
-    ]
-
-    unknown = [
-        item
-        for item in results
-        if item["status"] == "UNKNOWN"
-    ]
-
-    lines = []
-
-    lines.append(
-        "JP BH POŠTA CALCULATOR DESTINATION TEST"
-    )
-    lines.append("=" * 70)
-    lines.append("")
-    lines.append(
-        f"DESTINATIONS DISCOVERED: {total}"
-    )
-    lines.append(
-        f"DESTINATIONS TESTED: {len(results)}"
-    )
-    lines.append(
-        f"AVAILABLE: {len(available)}"
-    )
-    lines.append(
-        f"UNAVAILABLE: {len(unavailable)}"
-    )
-    lines.append(
-        f"UNKNOWN: {len(unknown)}"
-    )
-    lines.append(
-        f"TIMED OUT: {'YES' if timed_out else 'NO'}"
-    )
-    lines.append("")
-
-    lines.append("AVAILABLE DESTINATIONS")
-    lines.append("-" * 70)
-
-    for item in available:
-        prices = item.get("prices", "")
-        suffix = (
-            f" | {prices}"
-            if prices
-            else ""
-        )
-
-        lines.append(
-            f"{item['name']} "
-            f"[value={item['value']}]"
-            f"{suffix}"
-        )
-
-    lines.append("")
-    lines.append("UNAVAILABLE DESTINATIONS")
-    lines.append("-" * 70)
-
-    if unavailable:
-        for item in unavailable:
-            lines.append(
-                f"{item['name']} "
-                f"[value={item['value']}] "
-                f"| {item['reason']}"
-            )
-    else:
-        lines.append(
-            "None definitively identified."
-        )
-
-    lines.append("")
-    lines.append("UNKNOWN / NEEDS REVIEW")
-    lines.append("-" * 70)
-
-    if unknown:
-        for item in unknown:
-            lines.append(
-                f"{item['name']} "
-                f"[value={item['value']}] "
-                f"| {item['reason']}"
-            )
-    else:
-        lines.append("None.")
-
-    save_text(
-        RESULTS_FILE,
-        "\n".join(lines) + "\n",
-    )
-
-    # Only genuinely AVAILABLE destinations go into countries.txt.
-    countries = [
-        item["name"]
-        for item in available
-    ]
-
-    save_text(
-        COUNTRIES_FILE,
-        (
-            "\n".join(countries) + "\n"
-            if countries
-            else ""
-        ),
-    )
-
-    print(
-        f"AVAILABLE: {len(available)}"
-    )
-    print(
-        f"UNAVAILABLE: {len(unavailable)}"
-    )
-    print(
-        f"UNKNOWN: {len(unknown)}"
-    )
 
 
 async def build_diagnostic(
@@ -1062,36 +1106,41 @@ async def build_diagnostic(
         )
 
     if frame is not None:
-        html = await frame_content(frame)
+        html = await frame_content(
+            frame
+        )
 
         parts.extend(
             [
                 "",
                 f"CALCULATOR HTML LENGTH: {len(html)}",
                 "",
-                "CALCULATOR HTML:",
-                html[:50000],
-                "",
+                "CALCULATOR TEXT:",
             ]
         )
 
         try:
             text = await frame.locator(
                 "body"
-            ).inner_text(timeout=3000)
+            ).inner_text(timeout=3_000)
         except Exception:
             text = ""
 
+        parts.append(
+            text[:30_000]
+        )
+
         parts.extend(
             [
-                "CALCULATOR TEXT:",
-                text[:30000],
                 "",
+                "CALCULATOR HTML:",
+                html[:50_000],
             ]
         )
 
     parts.extend(
         [
+            "",
             "ERROR:",
             f"{type(error).__name__}: {error}",
         ]
@@ -1106,8 +1155,28 @@ async def build_diagnostic(
 
 
 async def main():
-    section("JP BH POŠTA CALCULATOR MONITOR")
+    section(
+        "JP BH POŠTA CALCULATOR MONITOR"
+    )
+
     print(f"URL: {URL}")
+
+    # IMPORTANT:
+    # Create the two principal output files immediately.
+    # Therefore they exist even if the calculator subsequently fails.
+    save_text(
+        RESULTS_FILE,
+        "JP BH POŠTA CALCULATOR DESTINATION TEST\n"
+        + "=" * 70
+        + "\n"
+        + "STATUS: STARTING\n"
+        + "No destinations tested yet.\n",
+    )
+
+    save_text(
+        COUNTRIES_FILE,
+        "",
+    )
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
@@ -1132,6 +1201,7 @@ async def main():
         page.set_default_timeout(
             DEFAULT_TIMEOUT
         )
+
         page.set_default_navigation_timeout(
             NAVIGATION_TIMEOUT
         )
@@ -1149,21 +1219,23 @@ async def main():
                     wait_until="domcontentloaded",
                     timeout=NAVIGATION_TIMEOUT,
                 )
-
             except PlaywrightTimeoutError as exc:
                 print(
                     "WARNING: page.goto timed out."
                 )
                 print(
-                    "Continuing because the page may "
+                    "Continuing because page may "
                     "already be usable."
                 )
                 print(str(exc))
 
             if response is not None:
-                print(
-                    f"HTTP status: {response.status}"
-                )
+                try:
+                    print(
+                        f"HTTP status: {response.status}"
+                    )
+                except Exception:
+                    pass
 
             print(
                 f"Final URL: {page.url}"
@@ -1182,7 +1254,7 @@ async def main():
             )
 
             await page.wait_for_timeout(
-                1200
+                2_000
             )
 
             frame = await find_calculator_frame(
@@ -1190,39 +1262,27 @@ async def main():
             )
 
             if frame is None:
-                print(
-                    "Calculator frame not found "
-                    "immediately. Waiting..."
-                )
-
-                try:
-                    await page.wait_for_selector(
-                        "iframe",
-                        timeout=5000,
-                    )
-                except Exception:
-                    pass
-
-                frame = await find_calculator_frame(
-                    page
-                )
-
-            if frame is None:
                 raise RuntimeError(
                     "Could not locate BH Pošta "
                     "calculator iframe."
                 )
 
-            section("SAVING CALCULATOR IFRAME")
+            section(
+                "SAVING CALCULATOR IFRAME"
+            )
 
             await save_calculator_diagnostics(
                 frame
             )
 
-            section("CHECKING INITIAL CALCULATOR")
+            section(
+                "CHECKING INITIAL CALCULATOR"
+            )
 
             country_select = (
-                await find_country_select(frame)
+                await find_country_select(
+                    frame
+                )
             )
 
             if country_select is None:
@@ -1250,7 +1310,7 @@ async def main():
                 country_select = (
                     await wait_for_country_select(
                         frame,
-                        15_000,
+                        FRAME_WAIT_TIMEOUT,
                     )
                 )
 
@@ -1286,11 +1346,17 @@ async def main():
 
             if len(destinations) < 20:
                 raise RuntimeError(
-                    "Suspiciously small destination "
-                    f"list: {len(destinations)}"
+                    "Destination list is unexpectedly "
+                    f"small: {len(destinations)}"
                 )
 
-            await discover_controls(frame)
+            # This is important: write a valid result file BEFORE
+            # attempting the first destination.
+            write_results(
+                [],
+                len(destinations),
+                status="DESTINATIONS_DISCOVERED",
+            )
 
             section(
                 "TESTING DESTINATIONS"
@@ -1300,17 +1366,12 @@ async def main():
                 f"Testing {len(destinations)} "
                 "destinations."
             )
-            print(
-                "This tests the calculator itself; "
-                "it does not assume every <option> "
-                "is available."
-            )
 
             results = []
 
-            deadline = (
+            overall_deadline = (
                 asyncio.get_running_loop().time()
-                + DESTINATION_TEST_TIMEOUT / 1000
+                + OVERALL_TEST_TIMEOUT / 1000
             )
 
             timed_out = False
@@ -1321,20 +1382,21 @@ async def main():
             ):
                 if (
                     asyncio.get_running_loop().time()
-                    >= deadline
+                    >= overall_deadline
                 ):
                     timed_out = True
 
                     print(
-                        "OVERALL DESTINATION TEST "
-                        "TIMEOUT REACHED."
+                        "Overall destination test "
+                        "timeout reached."
                     )
 
                     break
 
+                print()
                 print(
                     f"[{index:03d}/{len(destinations):03d}] "
-                    f"Testing {destination['name']}..."
+                    f"{destination['name']}"
                 )
 
                 status, reason, result_text = (
@@ -1360,49 +1422,50 @@ async def main():
                 results.append(result)
 
                 print(
-                    f"    RESULT: {status}"
+                    f"RESULT: {status}"
                 )
 
                 if prices:
                     print(
-                        f"    PRICE: "
-                        f"{', '.join(prices)}"
+                        "PRICE:",
+                        ", ".join(prices),
                     )
 
                 print(
-                    f"    REASON: {reason}"
+                    "REASON:",
+                    reason,
+                )
+
+                # CRITICAL:
+                # Save after every destination so the artifact contains
+                # partial results even if a later operation fails.
+                write_results(
+                    results,
+                    len(destinations),
+                    status="RUNNING",
                 )
 
                 await page.wait_for_timeout(
                     BETWEEN_DESTINATIONS_MS
                 )
 
-                # Update the results file continuously.
-                # This means an Action timeout/crash still leaves
-                # partial results in the artifact.
-                write_results(
-                    results,
-                    len(destinations),
-                    timed_out=False,
-                )
-
             if timed_out:
-                print(
-                    "WARNING: destination testing "
-                    "ended because of overall timeout."
+                final_status = (
+                    "TIMED_OUT_PARTIAL"
                 )
+            else:
+                final_status = "COMPLETE"
 
-            # Final write.
             write_results(
                 results,
                 len(destinations),
-                timed_out=timed_out,
+                status=final_status,
             )
 
             section("SUCCESS")
 
             print(
-                "Calculator destination testing completed."
+                "Destination testing completed."
             )
 
             print(
@@ -1423,18 +1486,43 @@ async def main():
                 f"Countries file: {COUNTRIES_FILE}"
             )
 
-            if timed_out:
-                print(
-                    "WARNING: not every destination "
-                    "was tested."
-                )
-
         except Exception as exc:
             section("MONITOR FAILED")
 
             print(
                 f"{type(exc).__name__}: {exc}"
             )
+
+            # Even on failure, update calculator-results.txt.
+            # This guarantees that the file reflects the failure.
+            try:
+                existing = ""
+
+                if RESULTS_FILE.exists():
+                    existing = RESULTS_FILE.read_text(
+                        encoding="utf-8"
+                    )
+
+                failure_lines = [
+                    "",
+                    "=" * 70,
+                    "MONITOR FAILURE",
+                    "=" * 70,
+                    f"{type(exc).__name__}: {exc}",
+                    "",
+                ]
+
+                save_text(
+                    RESULTS_FILE,
+                    existing
+                    + "\n".join(failure_lines),
+                )
+
+            except Exception as result_error:
+                print(
+                    "Could not update results file:",
+                    result_error,
+                )
 
             try:
                 await build_diagnostic(
