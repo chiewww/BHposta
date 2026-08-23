@@ -100,33 +100,98 @@ for attempt in range(30):
 return None
 ```
 
-async def country_dropdown_exists(frame):
+async def country_dropdown_info(frame):
 try:
 locator = frame.locator(COUNTRY_SELECTOR)
-return await locator.count() > 0
-except Exception:
-return False
-
-async def wait_for_country_dropdown(frame, seconds=15):
-print("Waiting for country dropdown...")
 
 ```
-attempts = seconds * 2
+    count = await locator.count()
 
-for attempt in range(attempts):
-    if await country_dropdown_exists(frame):
-        print("Country dropdown is available.")
-        return True
+    if count == 0:
+        return False, 0, False
 
-    if attempt % 2 == 0:
+    dropdown = locator.first
+
+    option_count = await dropdown.locator("option").count()
+
+    try:
+        visible = await dropdown.is_visible()
+    except Exception:
+        visible = False
+
+    return True, option_count, visible
+
+except Exception:
+    return False, 0, False
+```
+
+async def wait_for_international_controls(frame, seconds=20):
+print("Waiting for international controls...")
+
+```
+for second in range(seconds):
+    exists, option_count, visible = (
+        await country_dropdown_info(frame)
+    )
+
+    if exists:
         print(
-            f"Waiting for country dropdown "
-            f"{attempt // 2 + 1}/{seconds}..."
+            "Country dropdown exists."
+        )
+        print(
+            f"Country dropdown options: {option_count}"
+        )
+        print(
+            f"Country dropdown visible: {visible}"
         )
 
-    await frame.page.wait_for_timeout(500)
+        if option_count > 1 and visible:
+            return True
+
+    if second % 2 == 0:
+        print(
+            f"Waiting for international controls "
+            f"{second + 1}/{seconds}..."
+        )
+
+    await frame.page.wait_for_timeout(1000)
 
 return False
+```
+
+async def inspect_tab_state(frame):
+try:
+result = await frame.evaluate(
+"""
+() => {
+const li = document.getElementById(
+"ASPxTabControl1_T1"
+);
+
+```
+            const anchor = document.getElementById(
+                "ASPxTabControl1_T1T"
+            );
+
+            return {
+                liExists: !!li,
+                liClass: li ? li.className : "",
+                liOuterHTML: li ? li.outerHTML : "",
+                anchorExists: !!anchor
+            };
+        }
+        """
+    )
+
+    print("International tab state:")
+    print(result)
+
+    return result
+
+except Exception as exc:
+    print("Could not inspect tab state:")
+    print(exc)
+    return {}
 ```
 
 async def activate_international(frame):
@@ -136,26 +201,31 @@ print("ACTIVATING MEĐUNARODNI PROMET")
 print("=" * 70)
 
 ```
-# ------------------------------------------------------------
-# First make sure we actually have the international tab.
-# ------------------------------------------------------------
-
 tab_li = frame.locator(INTERNATIONAL_TAB_LI)
+tab_anchor = frame.locator(INTERNATIONAL_TAB_A)
 
-count = await tab_li.count()
+li_count = await tab_li.count()
+anchor_count = await tab_anchor.count()
 
 print(
-    f"{INTERNATIONAL_TAB_LI} matches: {count}"
+    f"{INTERNATIONAL_TAB_LI} matches: {li_count}"
+)
+print(
+    f"{INTERNATIONAL_TAB_A} matches: {anchor_count}"
 )
 
-if count == 0:
+if li_count == 0:
     raise RuntimeError(
         "International tab <li> was not found."
     )
 
-print("International tab <li> HTML:")
+if anchor_count == 0:
+    raise RuntimeError(
+        "International tab anchor was not found."
+    )
 
 try:
+    print("International tab <li> HTML:")
     print(
         await tab_li.first.evaluate(
             "(el) => el.outerHTML"
@@ -164,140 +234,132 @@ try:
 except Exception:
     pass
 
-# ------------------------------------------------------------
-# IMPORTANT:
-#
-# DevExpress ASPxTabControl uses a client-side object.
-# The old code tried to call the API directly from evaluate(),
-# which caused the strict-mode caller/callee error.
-#
-# Instead, we locate the actual tab and invoke its normal
-# browser click while also listening for the resulting network
-# activity.
-# ------------------------------------------------------------
+await inspect_tab_state(frame)
 
-tab_anchor = frame.locator(INTERNATIONAL_TAB_A)
-
-if await tab_anchor.count() == 0:
-    raise RuntimeError(
-        "International tab anchor was not found."
-    )
+# ------------------------------------------------------------
+# Method 1: click the actual anchor.
+# This is the normal way to activate the DevExpress tab.
+# ------------------------------------------------------------
 
 print("")
-print("Attempting browser-level activation...")
-
-# ------------------------------------------------------------
-# Method 1: normal Playwright click.
-# ------------------------------------------------------------
+print("Method 1: clicking Međunarodni promet anchor...")
 
 try:
-    print("Method 1: normal anchor click.")
-
-    await tab_anchor.first.scroll_into_view_if_needed(
-        timeout=5000
-    )
-
     await tab_anchor.first.click(
         force=True,
         timeout=10000,
     )
 
-    print("Anchor click completed.")
+    print(
+        "Anchor click completed."
+    )
 
 except Exception as exc:
-    print("Anchor click failed:")
+    print(
+        "Anchor click raised an exception:"
+    )
     print(exc)
 
-# ------------------------------------------------------------
-# Give ASP.NET AJAX time to process the asynchronous postback.
-# ------------------------------------------------------------
-
-if await wait_for_country_dropdown(frame, 8):
-    print("International controls appeared.")
+if await wait_for_international_controls(
+    frame,
+    20,
+):
+    print(
+        "International controls detected."
+    )
     return True
 
+await inspect_tab_state(frame)
+
 # ------------------------------------------------------------
-# Method 2:
-#
-# Use a DOM MouseEvent. This bypasses Playwright's click
-# machinery but still creates a real browser mouse event.
+# Method 2: dispatch a real mouse event directly in the DOM.
 # ------------------------------------------------------------
 
 print("")
-print("Method 2: DOM MouseEvent.")
+print("Method 2: dispatching DOM mouse event...")
 
 try:
     result = await tab_anchor.first.evaluate(
         """
         (el) => {
-            const event = new MouseEvent("click", {
+            const rect = el.getBoundingClientRect();
+
+            const options = {
                 bubbles: true,
                 cancelable: true,
-                view: window
-            });
+                view: window,
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2
+            };
 
-            return el.dispatchEvent(event);
+            el.dispatchEvent(
+                new MouseEvent("mousedown", options)
+            );
+
+            el.dispatchEvent(
+                new MouseEvent("mouseup", options)
+            );
+
+            return el.dispatchEvent(
+                new MouseEvent("click", options)
+            );
         }
         """
     )
 
     print(
-        "DOM MouseEvent result:",
+        "DOM mouse event result:",
         result,
     )
 
 except Exception as exc:
-    print("DOM MouseEvent failed:")
+    print(
+        "DOM mouse event failed:"
+    )
     print(exc)
 
-if await wait_for_country_dropdown(frame, 10):
-    print("International controls appeared.")
+if await wait_for_international_controls(
+    frame,
+    20,
+):
+    print(
+        "International controls detected."
+    )
     return True
 
+await inspect_tab_state(frame)
+
 # ------------------------------------------------------------
-# Method 3:
+# Method 3: DevExpress client API.
 #
-# The DevExpress tab has a predictable ID:
-#
-# ASPxTabControl1_T1
-#
-# Its client-side object is normally available as
-# ASPxTabControl1.
-#
-# We do NOT access caller/callee/arguments. That was the source
-# of the previous strict-mode failure.
+# Use SetActiveTabIndex, not ChangeActiveTab.
 # ------------------------------------------------------------
 
 print("")
-print("Method 3: DevExpress client object.")
+print("Method 3: DevExpress SetActiveTabIndex...")
 
 try:
     result = await frame.evaluate(
         """
         () => {
             try {
-                const obj = window["ASPxTabControl1"];
+                const control =
+                    window["ASPxTabControl1"];
 
-                if (!obj) {
-                    return "NO_OBJECT";
+                if (!control) {
+                    return "NO_CONTROL";
                 }
 
-                if (typeof obj.SetActiveTab === "function") {
-                    obj.SetActiveTab(1);
-                    return "SetActiveTab";
+                if (
+                    typeof control.SetActiveTabIndex
+                    === "function"
+                ) {
+                    control.SetActiveTabIndex(1);
+                    return "SET_ACTIVE_TAB_INDEX";
                 }
 
-                if (typeof obj.SetActiveTabIndex === "function") {
-                    obj.SetActiveTabIndex(1);
-                    return "SetActiveTabIndex";
-                }
+                return "CONTROL_FOUND_NO_METHOD";
 
-                if (typeof obj.ChangeActiveTab === "function") {
-                    obj.ChangeActiveTab(1);
-                    return "ChangeActiveTab";
-                }
-
-                return "OBJECT_FOUND_NO_SUPPORTED_METHOD";
             } catch (e) {
                 return "ERROR: " + e.message;
             }
@@ -306,78 +368,43 @@ try:
     )
 
     print(
-        "DevExpress client result:",
+        "DevExpress API result:",
         result,
     )
 
 except Exception as exc:
-    print("DevExpress client attempt failed:")
+    print(
+        "DevExpress API failed:"
+    )
     print(exc)
 
-if await wait_for_country_dropdown(frame, 12):
-    print("International controls appeared.")
+if await wait_for_international_controls(
+    frame,
+    20,
+):
+    print(
+        "International controls detected."
+    )
     return True
 
-# ------------------------------------------------------------
-# Method 4:
-#
-# Some versions expose the tab through ASPxClientTabControl
-# and require selecting the tab by index.
-# ------------------------------------------------------------
-
-print("")
-print("Method 4: inspect DevExpress client objects.")
-
-try:
-    info = await frame.evaluate(
-        """
-        () => {
-            const result = {};
-
-            result.hasASPxTabControl1 =
-                !!window["ASPxTabControl1"];
-
-            result.hasASPxClientTabControl =
-                typeof window["ASPxClientTabControl"] !== "undefined";
-
-            result.globalKeys = Object.keys(window)
-                .filter(k => k.includes("ASPxTab"))
-                .slice(0, 50);
-
-            return result;
-        }
-        """
-    )
-
-    print("DevExpress inspection:")
-    print(info)
-
-except Exception as exc:
-    print("Inspection failed:")
-    print(exc)
+await inspect_tab_state(frame)
 
 # ------------------------------------------------------------
-# Method 5:
-#
-# Directly invoke the ASP.NET postback using the exact target
-# that the tab control uses.
-#
-# The tab's server-side control is ASPxTabControl1 and tab index
-# 1 is Međunarodni promet.
-#
-# We use the page's existing __doPostBack function instead of
-# reconstructing ASP.NET hidden fields ourselves.
+# Method 4: ASP.NET postback fallback.
 # ------------------------------------------------------------
 
 print("")
-print("Method 5: ASP.NET __doPostBack.")
+print("Method 4: ASP.NET postback fallback...")
 
 try:
     result = await frame.evaluate(
         """
         () => {
             try {
-                if (typeof window.__doPostBack !== "function") {
+                if (
+                    typeof window.__doPostBack
+                    !== "function"
+                ) {
                     return "NO_DOPOSTBACK";
                 }
 
@@ -387,6 +414,7 @@ try:
                 );
 
                 return "POSTBACK_SENT";
+
             } catch (e) {
                 return "ERROR: " + e.message;
             }
@@ -395,20 +423,29 @@ try:
     )
 
     print(
-        "ASP.NET postback result:",
+        "Postback result:",
         result,
     )
 
 except Exception as exc:
-    print("ASP.NET postback failed:")
+    print(
+        "Postback failed:"
+    )
     print(exc)
 
-if await wait_for_country_dropdown(frame, 15):
-    print("International controls appeared.")
+if await wait_for_international_controls(
+    frame,
+    20,
+):
+    print(
+        "International controls detected."
+    )
     return True
 
+await inspect_tab_state(frame)
+
 # ------------------------------------------------------------
-# Save diagnostics specifically for this failure.
+# Save diagnostics.
 # ------------------------------------------------------------
 
 try:
@@ -422,6 +459,7 @@ try:
     print(
         "Saved international-failure.html"
     )
+
 except Exception:
     pass
 
@@ -436,12 +474,14 @@ try:
     print(
         "Saved international-failure.txt"
     )
+
 except Exception:
     pass
 
 print("")
 print(
-    "FAILED: International country dropdown never appeared."
+    "FAILED: International country dropdown "
+    "did not become available."
 )
 
 return False
@@ -460,15 +500,21 @@ for attempt in range(30):
         count = await locator.count()
 
         if count:
-            options = locator.locator("option")
-            option_count = await options.count()
+            dropdown = locator.first
 
-            print("Country dropdown found.")
+            option_count = await dropdown.locator(
+                "option"
+            ).count()
+
+            print(
+                "Country dropdown found."
+            )
+
             print(
                 f"Options: {option_count}"
             )
 
-            return locator.first
+            return dropdown
 
     except Exception:
         pass
@@ -506,6 +552,9 @@ for index in range(count):
         await option.get_attribute("value")
     )
 
+    if not name:
+        continue
+
     country = {
         "name": name,
         "value": value or "",
@@ -529,6 +578,10 @@ value = country["value"]
 name = country["name"]
 
 ```
+print(
+    f"Selecting country: {name}"
+)
+
 if value:
     await dropdown.select_option(
         value=value
@@ -538,11 +591,15 @@ else:
         label=name
     )
 
-await dropdown.page.wait_for_timeout(1200)
+await dropdown.page.wait_for_timeout(
+    1000
+)
 ```
 
 async def click_calculate(frame):
-print("Clicking Izračunaj...")
+print(
+"Clicking Izračunaj..."
+)
 
 ```
 button = frame.locator(
@@ -573,14 +630,20 @@ try:
         timeout=10000,
     )
 
-    print("Izračunaj clicked.")
+    print(
+        "Izračunaj clicked."
+    )
 
-    await frame.page.wait_for_timeout(1500)
+    await frame.page.wait_for_timeout(
+        1500
+    )
 
     return True
 
 except Exception as exc:
-    print("Normal click failed:")
+    print(
+        "Normal calculate click failed:"
+    )
     print(exc)
 
 try:
@@ -594,16 +657,20 @@ try:
     )
 
     print(
-        "JavaScript click result:",
+        "JavaScript calculate click result:",
         result,
     )
 
-    await frame.page.wait_for_timeout(1500)
+    await frame.page.wait_for_timeout(
+        1500
+    )
 
     return True
 
 except Exception as exc:
-    print("JavaScript click failed:")
+    print(
+        "JavaScript calculate click failed:"
+    )
     print(exc)
 
 return False
@@ -617,18 +684,30 @@ text = await get_body_text(frame)
     if MESSAGE in text:
         return True
 
-    await frame.page.wait_for_timeout(300)
+    await frame.page.wait_for_timeout(
+        300
+    )
 
 return False
 ```
 
-async def test_country(frame, dropdown, country):
+async def test_country(
+frame,
+dropdown,
+country,
+):
 name = country["name"]
 
 ```
 print("")
 print(
+    "=" * 70
+)
+print(
     "Testing: " + name
+)
+print(
+    "=" * 70
 )
 
 try:
@@ -662,20 +741,29 @@ try:
     )
 
     if found:
-        print("MESSAGE FOUND:")
-        print(MESSAGE)
+        print(
+            "MESSAGE FOUND:"
+        )
+        print(
+            MESSAGE
+        )
         print(
             "LIST 2 ADD: " + name
         )
         return True
 
-    print("Message not found.")
+    print(
+        "Message not found."
+    )
 
     return False
 
 except Exception as exc:
-    print("Country test failed:")
+    print(
+        "Country test failed:"
+    )
     print(exc)
+
     return False
 ```
 
@@ -735,7 +823,9 @@ async with async_playwright() as p:
             timeout=30000,
         )
 
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(
+            3000
+        )
 
         frame = await find_calculator_frame(
             page
