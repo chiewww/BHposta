@@ -3,7 +3,7 @@ name: Monitor JP BH Posta
 on:
   workflow_dispatch:
 
-  # Enable this after the diagnostic run succeeds.
+  # Enable after the monitor has been verified.
   # schedule:
   #   - cron: "0 3 * * *"
 
@@ -36,7 +36,6 @@ jobs:
 
       - name: Run monitor
         id: monitor
-        continue-on-error: true
         env:
           CALCULATOR_URL: https://www.posta.ba/kalkulator-cijena/
         run: |
@@ -58,6 +57,17 @@ jobs:
 
           echo
           echo "============================================================"
+          echo "calculator-results.txt"
+          echo "============================================================"
+
+          if [ -f calculator-results.txt ]; then
+            cat calculator-results.txt
+          else
+            echo "calculator-results.txt does not exist"
+          fi
+
+          echo
+          echo "============================================================"
           echo "countries.txt"
           echo "============================================================"
 
@@ -73,14 +83,17 @@ jobs:
           echo "============================================================"
 
           for f in \
+            calculator-results.txt \
+            countries.txt \
             diagnostic.txt \
             diagnostic.html \
+            diagnostic.png \
             response.html \
             page.html \
             debug.txt \
-            diagnostic.png \
             calculator.html \
-            iframe.html
+            iframe.html \
+            iframe.txt
           do
             if [ -f "$f" ]; then
               echo
@@ -96,61 +109,83 @@ jobs:
             fi
           done
 
-      - name: Upload diagnostic files
+      - name: Upload monitor artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jp-bh-posta-diagnostic
+          name: jp-bh-posta-monitor
           path: |
+            calculator-results.txt
             countries.txt
             diagnostic.txt
             diagnostic.html
+            diagnostic.png
             response.html
             page.html
             debug.txt
-            diagnostic.png
             calculator.html
             iframe.html
+            iframe.txt
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Verify calculator results were created
+        if: steps.monitor.outcome == 'success'
+        run: |
+          if [ ! -s calculator-results.txt ]; then
+            echo "ERROR: calculator-results.txt was not created or is empty."
+            exit 1
+          fi
+
+          echo "calculator-results.txt was successfully created."
+          echo
+          echo "File size:"
+          wc -c calculator-results.txt
+
+          echo
+          echo "First 100 lines:"
+          head -n 100 calculator-results.txt
 
       - name: Report monitor result
         if: always()
         run: |
-          echo "Monitor exit status: ${{ steps.monitor.outcome }}"
+          echo "Monitor outcome: ${{ steps.monitor.outcome }}"
 
-          if [ "${{ steps.monitor.outcome }}" != "success" ]; then
-            echo "Monitor failed."
-            echo "Diagnostic artifacts should still have been uploaded."
-          else
+          if [ "${{ steps.monitor.outcome }}" = "success" ]; then
             echo "Monitor completed successfully."
+          else
+            echo "Monitor failed."
+            echo "Diagnostic artifacts were uploaded."
           fi
 
       # ============================================================
-      # DO NOT ENABLE THE FOLLOWING UNTIL THE CALCULATOR MONITOR
-      # HAS BEEN VERIFIED TO PRODUCE CORRECT countries.txt.
+      # DO NOT ENABLE AUTOMATIC COMMIT YET.
+      #
+      # First verify that calculator-results.txt contains the
+      # correct destinations, unavailable destinations, services,
+      # weights and prices.
       # ============================================================
 
-      # - name: Check whether countries.txt changed
+      # - name: Check whether results changed
       #   id: changes
       #   run: |
-      #     if git diff --quiet -- countries.txt; then
+      #     if git diff --quiet -- calculator-results.txt; then
       #       echo "changed=false" >> "$GITHUB_OUTPUT"
       #     else
       #       echo "changed=true" >> "$GITHUB_OUTPUT"
       #     fi
 
-      # - name: Commit updated countries.txt
+      # - name: Commit updated calculator results
       #   if: steps.changes.outputs.changed == 'true'
       #   run: |
       #     git config user.name "github-actions[bot]"
       #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       #
-      #     git add countries.txt
-      #     git commit -m "Update destination availability"
+      #     git add calculator-results.txt
+      #     git commit -m "Update JP BH Posta calculator results"
       #     git push
 
       # - name: No changes
       #   if: steps.changes.outputs.changed == 'false'
       #   run: |
-      #     echo "countries.txt has not changed."
+      #     echo "calculator-results.txt has not changed."
