@@ -1,14 +1,9 @@
-python
 import asyncio
 import os
 from pathlib import Path
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
 
 URL = os.getenv(
     "CALCULATOR_URL",
@@ -18,33 +13,20 @@ URL = os.getenv(
 OUTPUT = Path("posta-countries.txt")
 
 COUNTRY_SELECTOR = "#ddlMeDoOdrediste"
+INTERNATIONAL_TAB_LI = "#ASPxTabControl1_T1"
+INTERNATIONAL_TAB_A = "#ASPxTabControl1_T1T"
 WEIGHT_SELECTOR = "#tbxMeDoAvioTezina"
 CALCULATE_SELECTOR = "#btnMeDoIzracunaj"
 
-INTERNATIONAL_TAB_LINK = "#ASPxTabControl1_T1T"
-INTERNATIONAL_TAB = "#ASPxTabControl1_T1"
+MESSAGE = "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 
-MESSAGE = (
-    "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
-)
-
-# How long to wait for ASP.NET AJAX / postback operations.
-POSTBACK_WAIT_MS = 2500
-
-# How long to wait for the country dropdown after changing tabs.
-DROPDOWN_WAIT_SECONDS = 30
-
-
-# ============================================================
-# OUTPUT
-# ============================================================
 
 def write_output(list1, list2, status):
     lines = []
 
     lines.append("JP BH POŠTA COUNTRY MONITOR")
     lines.append("=" * 70)
-    lines.append(f"STATUS: {status}")
+    lines.append("STATUS: " + status)
     lines.append("")
 
     lines.append("LIST 1")
@@ -70,10 +52,6 @@ def write_output(list1, list2, status):
     )
 
 
-# ============================================================
-# FRAME HELPERS
-# ============================================================
-
 async def get_body_text(frame):
     try:
         return await frame.locator("body").inner_text()
@@ -92,7 +70,6 @@ async def find_calculator_frame(page):
             f"({len(frames)} frames)"
         )
 
-        # First choice: identify the frame by its URL.
         for index, frame in enumerate(frames):
             frame_url = frame.url or ""
 
@@ -105,7 +82,6 @@ async def find_calculator_frame(page):
                 )
                 return frame
 
-        # Second choice: identify by calculator HTML.
         for index, frame in enumerate(frames):
             try:
                 html = await frame.content()
@@ -129,342 +105,229 @@ async def find_calculator_frame(page):
     return None
 
 
-# ============================================================
-# TAB ACTIVATION
-# ============================================================
+async def wait_for_country_dropdown(frame, seconds=15):
+    print("Waiting for country dropdown...")
 
-async def wait_for_international_controls(frame):
-    """
-    Wait until the international calculator controls actually
-    exist.
+    attempts = seconds * 2
 
-    We do NOT assume that a click succeeding means the ASP.NET
-    postback has finished.
-    """
-
-    print(
-        "Waiting for international calculator controls..."
-    )
-
-    deadline = asyncio.get_running_loop().time() + DROPDOWN_WAIT_SECONDS
-
-    while asyncio.get_running_loop().time() < deadline:
+    for attempt in range(attempts):
         try:
             dropdown = frame.locator(COUNTRY_SELECTOR)
 
-            if await dropdown.count():
-                print(
-                    "Country dropdown is now available."
-                )
-                return True
+            if await dropdown.count() > 0:
+                try:
+                    if await dropdown.first.is_visible():
+                        print("Country dropdown is visible.")
+                        return dropdown.first
+                except Exception:
+                    pass
+
+                print("Country dropdown exists.")
+                return dropdown.first
 
         except Exception:
             pass
 
         await frame.page.wait_for_timeout(500)
 
-    return False
+    return None
 
 
 async def activate_international_tab(frame):
-    """
-    Activate Međunarodni promet.
-
-    This page uses DevExpress ASPxTabControl inside an ASP.NET
-    application. The visible tab is:
-
-        #ASPxTabControl1_T1T
-
-    Its parent <li> is:
-
-        #ASPxTabControl1_T1
-
-    The important behavior is that clicking the tab starts an
-    ASP.NET/DevExpress postback. We therefore wait for the
-    resulting international controls rather than treating a
-    JavaScript exception from the DevExpress internals as a
-    failure.
-    """
-
     print("")
     print("=" * 70)
-    print("SELECTING MEĐUNARODNI PROMET")
+    print("ACTIVATING MEĐUNARODNI PROMET")
     print("=" * 70)
 
-    link = frame.locator(INTERNATIONAL_TAB_LINK).first
-    tab = frame.locator(INTERNATIONAL_TAB).first
-
-    if await link.count() == 0:
-        raise RuntimeError(
-            f"International tab link {INTERNATIONAL_TAB_LINK} "
-            "was not found."
-        )
-
-    print(
-        f"{INTERNATIONAL_TAB_LINK} matches: "
-        f"{await frame.locator(INTERNATIONAL_TAB_LINK).count()}"
-    )
-
+    # First verify that the exact HTML supplied by the user exists.
     try:
-        html = await link.evaluate(
-            "(el) => el.outerHTML"
-        )
-        print("International tab HTML:")
-        print(html)
-    except Exception:
-        pass
+        tab_li = frame.locator(INTERNATIONAL_TAB_LI)
 
-    # --------------------------------------------------------
-    # METHOD 1:
-    # Click the actual <a> with force=True.
-    #
-    # This is the real user-facing tab element.
-    # --------------------------------------------------------
-
-    print("")
-    print("Clicking actual international tab link...")
-
-    click_started = False
-
-    try:
-        await link.click(
-            force=True,
-            timeout=5000,
-            no_wait_after=True,
-        )
-
-        click_started = True
+        count = await tab_li.count()
 
         print(
-            "International tab click was sent."
+            f"{INTERNATIONAL_TAB_LI} matches: {count}"
         )
+
+        if count:
+            html = await tab_li.first.evaluate(
+                "(el) => el.outerHTML"
+            )
+
+            print("International tab <li> HTML:")
+            print(html)
 
     except Exception as exc:
-        print(
-            "Normal tab click reported an exception:"
-        )
+        print("Could not inspect tab <li>:")
         print(exc)
 
-    # Give the ASP.NET request a moment to start.
-    await frame.page.wait_for_timeout(1000)
+    # IMPORTANT:
+    # The site's tab is a DevExpress ASPxTabControl.
+    # We do NOT call its JavaScript client API because that API
+    # can trigger an ASP.NET/DevExpress JavaScript error in
+    # Playwright's execution context.
+    #
+    # Instead, click the actual tab element exactly as a user would.
 
-    if await wait_for_international_controls(frame):
+    try:
+        tab_li = frame.locator(INTERNATIONAL_TAB_LI).first
+
+        if await tab_li.count() == 0:
+            print("Tab <li> was not found.")
+            return False
+
+        print("Attempt 1: clicking actual tab <li>...")
+
+        try:
+            await tab_li.click(
+                force=True,
+                timeout=5000,
+            )
+
+            print("Actual tab <li> click completed.")
+
+        except Exception as exc:
+            print("Tab <li> click failed:")
+            print(exc)
+
+            # Use DOM click without invoking the DevExpress API ourselves.
+            print("Attempt 2: DOM click on tab <li>...")
+
+            result = await tab_li.evaluate(
+                """
+                (el) => {
+                    el.dispatchEvent(
+                        new MouseEvent('mousedown', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        })
+                    );
+
+                    el.dispatchEvent(
+                        new MouseEvent('mouseup', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        })
+                    );
+
+                    el.dispatchEvent(
+                        new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        })
+                    );
+
+                    return true;
+                }
+                """
+            )
+
+            print(
+                "DOM event dispatch result:",
+                result,
+            )
+
+    except Exception as exc:
+        print("Could not click tab <li>:")
+        print(exc)
+
+    # Give ASP.NET AJAX / DevExpress time to process the asynchronous
+    # postback and replace the panel contents.
+    print("Waiting for international controls...")
+
+    dropdown = await wait_for_country_dropdown(
+        frame,
+        seconds=15,
+    )
+
+    if dropdown is not None:
         print(
-            "Međunarodni promet activated successfully."
+            "SUCCESS: International country dropdown is available."
         )
         return True
 
-    # --------------------------------------------------------
-    # METHOD 2:
-    # Click the parent <li>.
-    #
-    # This is useful with DevExpress because the tab control
-    # handles the tab container as well as the anchor.
-    # --------------------------------------------------------
-
-    print("")
+    # One final attempt: click the exact anchor.
     print(
         "Country dropdown did not appear."
     )
     print(
-        "Trying actual tab <li>..."
-    )
-
-    if await tab.count():
-        try:
-            tab_html = await tab.evaluate(
-                "(el) => el.outerHTML"
-            )
-
-            print("Tab <li> HTML:")
-            print(tab_html)
-
-        except Exception:
-            pass
-
-        try:
-            await tab.click(
-                force=True,
-                timeout=5000,
-                no_wait_after=True,
-            )
-
-            print(
-                "Tab <li> click was sent."
-            )
-
-        except Exception as exc:
-            print(
-                "Tab <li> click reported an exception:"
-            )
-            print(exc)
-
-        await frame.page.wait_for_timeout(
-            POSTBACK_WAIT_MS
-        )
-
-        if await wait_for_international_controls(frame):
-            print(
-                "Međunarodni promet activated successfully "
-                "through the tab container."
-            )
-            return True
-
-    # --------------------------------------------------------
-    # METHOD 3:
-    # Dispatch a real mouse click without calling the
-    # DevExpress client API ourselves.
-    #
-    # IMPORTANT:
-    # We intentionally do NOT call ASPxTabControl1.SetActiveTab,
-    # ChangeActiveTab, SendPostBack, or __doPostBack directly.
-    # Those were producing the strict-mode JavaScript exception.
-    # --------------------------------------------------------
-
-    print("")
-    print(
-        "Trying browser mouse click on the tab..."
+        "Attempt 3: clicking exact tab anchor..."
     )
 
     try:
-        await link.scroll_into_view_if_needed(
-            timeout=5000
-        )
+        anchor = frame.locator(
+            INTERNATIONAL_TAB_A
+        ).first
 
-        box = await link.bounding_box()
-
-        if box:
-            x = box["x"] + box["width"] / 2
-            y = box["y"] + box["height"] / 2
-
-            print(
-                f"Mouse click coordinates: {x:.1f}, {y:.1f}"
+        if await anchor.count():
+            await anchor.evaluate(
+                """
+                (el) => {
+                    el.dispatchEvent(
+                        new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        })
+                    );
+                }
+                """
             )
 
-            await frame.page.mouse.click(
-                x,
-                y,
-            )
-
-            print(
-                "Browser mouse click was sent."
-            )
-
-            await frame.page.wait_for_timeout(
-                POSTBACK_WAIT_MS
-            )
-
-            if await wait_for_international_controls(frame):
-                print(
-                    "Međunarodni promet activated successfully "
-                    "through browser mouse click."
-                )
-                return True
+            print("Anchor DOM click dispatched.")
 
     except Exception as exc:
-        print(
-            "Browser mouse click failed:"
-        )
+        print("Anchor DOM click failed:")
         print(exc)
 
-    # --------------------------------------------------------
-    # METHOD 4:
-    # Inspect whether the international controls are already
-    # present somewhere in the frame.
-    #
-    # This prevents a false failure if the page switched but
-    # the selector timing was unusual.
-    # --------------------------------------------------------
-
-    print("")
-    print(
-        "Final inspection for international controls..."
+    dropdown = await wait_for_country_dropdown(
+        frame,
+        seconds=15,
     )
 
-    try:
-        html = await frame.content()
-
-        if "ddlMeDoOdrediste" in html:
-            print(
-                "ddlMeDoOdrediste exists in the frame HTML."
-            )
-
-            dropdown = frame.locator(
-                COUNTRY_SELECTOR
-            )
-
-            if await dropdown.count():
-                print(
-                    "Country dropdown is available."
-                )
-                return True
-
-    except Exception as exc:
+    if dropdown is not None:
         print(
-            "Final inspection failed:"
+            "SUCCESS: International country dropdown is available."
         )
-        print(exc)
+        return True
 
-    print("")
+    # Save the current iframe HTML because this tells us exactly
+    # what the server returned after the tab activation attempt.
+    try:
+        Path("international-failure.html").write_text(
+            await frame.content(),
+            encoding="utf-8",
+        )
+
+        print(
+            "Saved international-failure.html"
+        )
+    except Exception:
+        pass
+
+    try:
+        Path("international-failure.txt").write_text(
+            await get_body_text(frame),
+            encoding="utf-8",
+        )
+
+        print(
+            "Saved international-failure.txt"
+        )
+    except Exception:
+        pass
+
     print(
-        "FAILED: Međunarodni promet could not be activated."
+        "FAILED: International country dropdown never appeared."
     )
 
     return False
 
 
-# ============================================================
-# COUNTRY DROPDOWN
-# ============================================================
-
-async def get_country_dropdown(frame):
-    print("")
-    print("Locating country dropdown...")
-
-    for attempt in range(30):
-        try:
-            locator = frame.locator(
-                COUNTRY_SELECTOR
-            )
-
-            count = await locator.count()
-
-            if count:
-                options = locator.locator("option")
-                option_count = await options.count()
-
-                print(
-                    "Country dropdown found."
-                )
-
-                print(
-                    f"Options: {option_count}"
-                )
-
-                return locator.first
-
-        except Exception:
-            pass
-
-        print(
-            f"Waiting for country dropdown "
-            f"{attempt + 1}/30..."
-        )
-
-        await frame.page.wait_for_timeout(1000)
-
-    return None
-
-
 async def read_list1(dropdown):
-    """
-    Read the actual HTML <option> elements.
-
-    Nothing is filtered, renamed, sorted, or removed.
-
-    The original order is preserved exactly.
-    """
-
     print("")
     print("=" * 70)
     print("READING LIST 1")
@@ -473,6 +336,10 @@ async def read_list1(dropdown):
     options = dropdown.locator("option")
 
     count = await options.count()
+
+    print(
+        f"Actual dropdown option count: {count}"
+    )
 
     countries = []
 
@@ -498,17 +365,12 @@ async def read_list1(dropdown):
             f"[{index}] {name}"
         )
 
-    print("")
     print(
         f"LIST 1 contains {len(countries)} countries."
     )
 
     return countries
 
-
-# ============================================================
-# COUNTRY SELECTION
-# ============================================================
 
 async def select_country(dropdown, country):
     value = country["value"]
@@ -527,48 +389,31 @@ async def select_country(dropdown, country):
             label=name
         )
 
-    await dropdown.page.wait_for_timeout(
-        1200
-    )
+    await dropdown.page.wait_for_timeout(1200)
 
-
-# ============================================================
-# WEIGHT
-# ============================================================
 
 async def set_weight(frame):
-    weight = frame.locator(
-        WEIGHT_SELECTOR
-    )
-
-    count = await weight.count()
-
-    if count == 0:
-        print(
-            "Weight field not found; continuing."
-        )
-        return
-
     try:
-        await weight.fill("10")
-        print(
-            "Weight set to 10 grams."
+        weight = frame.locator(
+            WEIGHT_SELECTOR
         )
+
+        if await weight.count():
+            await weight.fill("10")
+
+            print(
+                "Weight set to 10 grams."
+            )
+
     except Exception as exc:
         print(
-            "Could not fill weight field:"
+            "Could not set weight:"
         )
         print(exc)
 
 
-# ============================================================
-# CALCULATE
-# ============================================================
-
 async def click_calculate(frame):
-    print(
-        "Clicking Izračunaj..."
-    )
+    print("Clicking Izračunaj...")
 
     button = frame.locator(
         CALCULATE_SELECTOR
@@ -585,26 +430,14 @@ async def click_calculate(frame):
 
     button = button.first
 
-    # --------------------------------------------------------
-    # Click normally.
-    #
-    # no_wait_after=True is intentional because this is an
-    # ASP.NET form submission / postback.
-    # --------------------------------------------------------
-
     try:
         await button.click(
             force=True,
             timeout=10000,
-            no_wait_after=True,
         )
 
         print(
-            "Izračunaj click sent."
-        )
-
-        await frame.page.wait_for_timeout(
-            1500
+            "Izračunaj clicked."
         )
 
         return True
@@ -615,21 +448,18 @@ async def click_calculate(frame):
         )
         print(exc)
 
-    # --------------------------------------------------------
-    # JavaScript fallback.
-    # --------------------------------------------------------
-
     try:
         await button.evaluate(
-            "(el) => el.click()"
+            """
+            (el) => {
+                el.click();
+                return true;
+            }
+            """
         )
 
         print(
-            "JavaScript calculate click sent."
-        )
-
-        await frame.page.wait_for_timeout(
-            1500
+            "JavaScript calculate click succeeded."
         )
 
         return True
@@ -643,54 +473,32 @@ async def click_calculate(frame):
     return False
 
 
-# ============================================================
-# MESSAGE CHECK
-# ============================================================
-
 async def check_message(frame):
-    """
-    Check the actual rendered page text.
-
-    The exact message must occur in the frame body.
-    """
-
-    for attempt in range(20):
+    for attempt in range(30):
         text = await get_body_text(frame)
 
         if MESSAGE in text:
             print(
-                "MESSAGE FOUND."
+                "MESSAGE FOUND:"
             )
+            print(MESSAGE)
+
             return True
 
-        await frame.page.wait_for_timeout(
-            300
-        )
+        await frame.page.wait_for_timeout(300)
 
     return False
 
 
-# ============================================================
-# TEST ONE COUNTRY
-# ============================================================
-
-async def test_country(
-    frame,
-    dropdown,
-    country,
-):
+async def test_country(frame, dropdown, country):
     name = country["name"]
 
     print("")
+    print("-" * 70)
     print(
-        "=" * 70
+        "Testing: " + name
     )
-    print(
-        "TESTING: " + name
-    )
-    print(
-        "=" * 70
-    )
+    print("-" * 70)
 
     try:
         await select_country(
@@ -698,9 +506,7 @@ async def test_country(
             country,
         )
 
-        await set_weight(
-            frame
-        )
+        await set_weight(frame)
 
         clicked = await click_calculate(
             frame
@@ -720,6 +526,7 @@ async def test_country(
             print(
                 "LIST 2 ADD: " + name
             )
+
             return True
 
         print(
@@ -732,18 +539,10 @@ async def test_country(
         print(
             "Country test failed:"
         )
-        print(
-            type(exc).__name__
-            + ": "
-            + str(exc)
-        )
+        print(exc)
 
         return False
 
-
-# ============================================================
-# MAIN
-# ============================================================
 
 async def main():
     print("=" * 70)
@@ -758,7 +557,6 @@ async def main():
         "Output: " + str(OUTPUT)
     )
 
-    # Always create an output file, even if startup fails.
     write_output(
         [],
         [],
@@ -766,7 +564,6 @@ async def main():
     )
 
     async with async_playwright() as p:
-
         browser = await p.chromium.launch(
             headless=True,
             args=[
@@ -792,11 +589,6 @@ async def main():
         frame = None
 
         try:
-            # ------------------------------------------------
-            # OPEN PAGE
-            # ------------------------------------------------
-
-            print("")
             print(
                 "Opening calculator page..."
             )
@@ -807,13 +599,7 @@ async def main():
                 timeout=30000,
             )
 
-            await page.wait_for_timeout(
-                3000
-            )
-
-            # ------------------------------------------------
-            # FIND IFRAME
-            # ------------------------------------------------
+            await page.wait_for_timeout(3000)
 
             frame = await find_calculator_frame(
                 page
@@ -829,10 +615,6 @@ async def main():
                 + frame.url
             )
 
-            # ------------------------------------------------
-            # INTERNATIONAL TAB
-            # ------------------------------------------------
-
             selected = await activate_international_tab(
                 frame
             )
@@ -842,23 +624,16 @@ async def main():
                     "Could not activate Međunarodni promet."
                 )
 
-            # ------------------------------------------------
-            # COUNTRY DROPDOWN
-            # ------------------------------------------------
-
-            dropdown = await get_country_dropdown(
-                frame
+            dropdown = await wait_for_country_dropdown(
+                frame,
+                seconds=10,
             )
 
             if dropdown is None:
                 raise RuntimeError(
-                    "Could not find "
-                    + COUNTRY_SELECTOR
+                    "Could not find country dropdown after "
+                    "activating Međunarodni promet."
                 )
-
-            # ------------------------------------------------
-            # LIST 1
-            # ------------------------------------------------
 
             list1 = await read_list1(
                 dropdown
@@ -868,10 +643,6 @@ async def main():
                 raise RuntimeError(
                     "Country dropdown is empty."
                 )
-
-            # ------------------------------------------------
-            # LIST 2
-            # ------------------------------------------------
 
             list2 = []
 
@@ -906,16 +677,11 @@ async def main():
                         country
                     )
 
-                # Save progress after every country.
                 write_output(
                     list1,
                     list2,
                     "TESTING",
                 )
-
-            # ------------------------------------------------
-            # FINAL OUTPUT
-            # ------------------------------------------------
 
             write_output(
                 list1,
@@ -937,9 +703,7 @@ async def main():
             )
 
             print("")
-            print(
-                "LIST 2:"
-            )
+            print("LIST 2:")
 
             for country in list2:
                 print(
@@ -948,10 +712,8 @@ async def main():
 
             print("")
             print(
-                "Output file created:"
-            )
-            print(
-                str(OUTPUT)
+                "Output file created: "
+                + str(OUTPUT)
             )
 
         except Exception as exc:
@@ -966,27 +728,8 @@ async def main():
                 + str(exc)
             )
 
-            # Keep the file available even on failure.
             try:
-                write_output(
-                    [],
-                    [],
-                    "FAILED: "
-                    + type(exc).__name__
-                    + ": "
-                    + str(exc),
-                )
-            except Exception:
-                pass
-
-            # ------------------------------------------------
-            # DIAGNOSTICS
-            # ------------------------------------------------
-
-            try:
-                Path(
-                    "diagnostic.html"
-                ).write_text(
+                Path("diagnostic.html").write_text(
                     await page.content(),
                     encoding="utf-8",
                 )
@@ -995,16 +738,12 @@ async def main():
 
             try:
                 if frame is not None:
-                    Path(
-                        "iframe.html"
-                    ).write_text(
+                    Path("iframe.html").write_text(
                         await frame.content(),
                         encoding="utf-8",
                     )
 
-                    Path(
-                        "iframe.txt"
-                    ).write_text(
+                    Path("iframe.txt").write_text(
                         await get_body_text(frame),
                         encoding="utf-8",
                     )
@@ -1025,10 +764,6 @@ async def main():
             await context.close()
             await browser.close()
 
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     asyncio.run(main())
