@@ -3,10 +3,6 @@ name: Monitor JP BH Posta
 on:
   workflow_dispatch:
 
-  # Enable after the monitor has been verified.
-  # schedule:
-  #   - cron: "0 3 * * *"
-
 permissions:
   contents: write
 
@@ -34,55 +30,63 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
+      # ------------------------------------------------------------
+      # Check syntax BEFORE running the monitor.
+      # ------------------------------------------------------------
+      - name: Check monitor.py syntax
+        id: syntax
+        continue-on-error: true
+        run: |
+          python -m py_compile monitor.py
+
+      # ------------------------------------------------------------
+      # Run monitor only when syntax is valid.
+      # ------------------------------------------------------------
       - name: Run monitor
         id: monitor
+        if: steps.syntax.outcome == 'success'
+        continue-on-error: true
         env:
           CALCULATOR_URL: https://www.posta.ba/kalkulator-cijena/
         run: |
           python monitor.py
 
+      # ------------------------------------------------------------
+      # Always create a status file.
+      # ------------------------------------------------------------
+      - name: Create monitor status
+        if: always()
+        run: |
+          {
+            echo "JP BH POSTA MONITOR STATUS"
+            echo "=========================="
+            echo
+            echo "Syntax check: ${{ steps.syntax.outcome }}"
+            echo "Monitor:      ${{ steps.monitor.outcome }}"
+            echo
+            echo "Working directory:"
+            pwd
+            echo
+            echo "Files:"
+            find . -maxdepth 3 -type f -print | sort
+          } > monitor-status.txt
+
+          cat monitor-status.txt
+
+      # ------------------------------------------------------------
+      # Display anything that was produced.
+      # ------------------------------------------------------------
       - name: Show generated files
         if: always()
         run: |
           echo "============================================================"
-          echo "WORKING DIRECTORY"
+          echo "GENERATED FILES"
           echo "============================================================"
-          pwd
 
-          echo
-          echo "============================================================"
-          echo "ALL FILES"
-          echo "============================================================"
           find . -maxdepth 3 -type f -print | sort
 
-          echo
-          echo "============================================================"
-          echo "calculator-results.txt"
-          echo "============================================================"
-
-          if [ -f calculator-results.txt ]; then
-            cat calculator-results.txt
-          else
-            echo "calculator-results.txt does not exist"
-          fi
-
-          echo
-          echo "============================================================"
-          echo "countries.txt"
-          echo "============================================================"
-
-          if [ -f countries.txt ]; then
-            cat countries.txt
-          else
-            echo "countries.txt does not exist"
-          fi
-
-          echo
-          echo "============================================================"
-          echo "DIAGNOSTIC FILES"
-          echo "============================================================"
-
           for f in \
+            monitor-status.txt \
             calculator-results.txt \
             countries.txt \
             diagnostic.txt \
@@ -97,7 +101,9 @@ jobs:
           do
             if [ -f "$f" ]; then
               echo
-              echo "----- $f -----"
+              echo "============================================================"
+              echo "$f"
+              echo "============================================================"
 
               if [[ "$f" == *.png ]]; then
                 ls -lh "$f"
@@ -109,12 +115,16 @@ jobs:
             fi
           done
 
+      # ------------------------------------------------------------
+      # ALWAYS upload artifacts.
+      # ------------------------------------------------------------
       - name: Upload monitor artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jp-bh-posta-monitor
           path: |
+            monitor-status.txt
             calculator-results.txt
             countries.txt
             diagnostic.txt
@@ -129,63 +139,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Verify calculator results were created
+      # ------------------------------------------------------------
+      # Explicitly fail if monitor.py has invalid Python syntax.
+      # ------------------------------------------------------------
+      - name: Fail on syntax error
+        if: steps.syntax.outcome != 'success'
+        run: |
+          echo "monitor.py contains a Python syntax error."
+          echo "The monitor was not executed."
+          exit 1
+
+      # ------------------------------------------------------------
+      # Explicitly fail if monitor itself failed.
+      # ------------------------------------------------------------
+      - name: Fail if monitor failed
+        if: steps.syntax.outcome == 'success' && steps.monitor.outcome != 'success'
+        run: |
+          echo "monitor.py executed but failed."
+          echo "See the uploaded jp-bh-posta-monitor artifact."
+          exit 1
+
+      # ------------------------------------------------------------
+      # Verify results.
+      # ------------------------------------------------------------
+      - name: Verify calculator-results.txt
         if: steps.monitor.outcome == 'success'
         run: |
           if [ ! -s calculator-results.txt ]; then
-            echo "ERROR: calculator-results.txt was not created or is empty."
+            echo "ERROR: calculator-results.txt is missing or empty."
             exit 1
           fi
 
-          echo "calculator-results.txt was successfully created."
-          echo
-          echo "File size:"
+          echo "calculator-results.txt exists:"
           wc -c calculator-results.txt
 
           echo
           echo "First 100 lines:"
           head -n 100 calculator-results.txt
-
-      - name: Report monitor result
-        if: always()
-        run: |
-          echo "Monitor outcome: ${{ steps.monitor.outcome }}"
-
-          if [ "${{ steps.monitor.outcome }}" = "success" ]; then
-            echo "Monitor completed successfully."
-          else
-            echo "Monitor failed."
-            echo "Diagnostic artifacts were uploaded."
-          fi
-
-      # ============================================================
-      # DO NOT ENABLE AUTOMATIC COMMIT YET.
-      #
-      # First verify that calculator-results.txt contains the
-      # correct destinations, unavailable destinations, services,
-      # weights and prices.
-      # ============================================================
-
-      # - name: Check whether results changed
-      #   id: changes
-      #   run: |
-      #     if git diff --quiet -- calculator-results.txt; then
-      #       echo "changed=false" >> "$GITHUB_OUTPUT"
-      #     else
-      #       echo "changed=true" >> "$GITHUB_OUTPUT"
-      #     fi
-
-      # - name: Commit updated calculator results
-      #   if: steps.changes.outputs.changed == 'true'
-      #   run: |
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      #
-      #     git add calculator-results.txt
-      #     git commit -m "Update JP BH Posta calculator results"
-      #     git push
-
-      # - name: No changes
-      #   if: steps.changes.outputs.changed == 'false'
-      #   run: |
-      #     echo "calculator-results.txt has not changed."
