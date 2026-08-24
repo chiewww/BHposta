@@ -3,138 +3,269 @@ BH POSTA INTERNATIONAL DOPISNICA
 ========================================
 
 ========================================
-AVAILABLE COUNTRIES
+ALL COUNTRIES
 ========================================
 
+Afganistan
 Albanija
 Alžir
+Amer.Djevičanska Ostrva
+AMERICAN SAMOA
+ANDORRA
 Angola
+ANGUILLA
+Antiga i Barbuda
 Argentina
 Armenija
+Aruba
+ASCENSION
+Ascension
 Australija
 Austrija
 Azerbejdžan
+Azori
+Bahami
+Bahrein
 Bangladeš
+Barbados
 Belgija
 Belize
 Benin
+BERMUDA
 Bjelorusija
 Bocvana
 Bolivija
+BONAIRE
+Bosna i Hercegovina
+BOUVET ISLAND
 Brazil
+BRITISH INDIAN OCEAN TERRITORY
 Brunei Daruselam
 Bugarska
 Burkina Faso
 Burundi
+Butan
 Cad
+Cap-Vert (Zeleni-Rt)
 Centralnoafricka Republika
+Channel Islands
+CHRISTMAS ISLAND
 Cile
+COCOS (KEELING) ISLANDS
+COOK ISLANDS
 Crna Gora
 Češka Republika
 Danska
+Dominika
+Dominikanska Republika
 Džibuti
 Egipat
+Ekvador
+Ekvatorijalna Gvineja
 Eritreja
 Estonija
 ESVATINI (SVAZILEND)
+Etiopija
+FALKLAND ISLANDS (MALVINAS)
+Farski otoci
+Fidži
 Filipini
 Finska
 Francuska
+FRENCH GUIANA
+FRENCH SOUTHERN TERRITORIES
 Gabon
 Gambija
+Gana
+Gibraltar
 Grcka
+Grenada
+Grenland
 Gruzija
+GUAM
+Guernsey
+Gvadelupe
 Gvajana
 Gvatemala
 Gvineja
 Gvineja Bisao
 Haiti
+HEARD ISLAND AND MCDONALD ISLANDS
 Holandija
+Holandski Antili
 Honduras
 Hong Kong, Kina
 Hrvatska
 Indija
 Indonezija
+Irak
+Iran
 Irska
 Island
 Italija
+Italijanske poste
+Izrael
+Jamajka
 Japan
+Jemen
+Jersey
+Jordan
+Južna Džodžija i Sandwich otoci
+Južni Sudan
 Južnoafricka Republika
+Kajmanski otoci
 Kambodža
 Kamerun
 Kanada
+Kanarski otoci
+Katar
 Kazahstan
+Kenija
 Kina
 Kipar
 Kirgistan
+Kiribati
 Kolumbija
+Komori
+Kongo (Dem.Rep.)
+Kongo (Rep.)
 Koreja (Dem.Rep.)
 Koreja (Rep.)
 Kosovo
 Kostarika
+Kuba
+Kurakao
+Kuvajt
 Laos
 Latvija
+Lesoto
+Liban
 Liberija
 Libija
 Lihtenštajn
 Litvanija
 Luksemburg
 Madagaskar
+Madeira
 Mađarska
+Makao, Kina
 Malavi
+Maldivi
 Malezija
 Mali
 Malta
 Maroko
+MARSHALL ISLANDS
+MARTINIQUE
 Mauricijus
 Mauritanija
+MAYOTTE
 Meksiko
 Mianmar
+MICRONESIA, FEDERATED STATES OF
 Moldavija
+Monako
 Mongolija
+MONTSERRAT
 Mozambik
 Namibija
+Nauru
 Nepal
 Niger
 Nigerija
 Nikaragva
+NIUE
+NORFOLK ISLAND
+NORTHERN MARIANA ISLANDS
 Norveška
+Nova Kaledonija
 Novi Zeland
 Njemacka
 Obala Slonovace
+Oman
+Otok Man
 Pakistan
+PALAU
+Palestina
 Panama
 Papua Nova Gvineja
+Paragvaj
+Peru
+PITCAIRN
+Polinezija
 Poljska
+Portoriko
 Portugal
 Republika Sjeverna Makedonija
+REUNION
+RIA
 Ruanda
 Rumunija
 Ruska Federacija
+S. Martin
 SAD Sjedinjene Americke Države
+SAINT PIERRE AND MIQUELON
 Salvador
+Samoa
+San Marino
+Saudijska Arabija
+Sejšeli
 Senegal
 Siera Leone
 Singapur
+Sirija
 Slovacka
 Slovenija
+Solomonski otoci
+Somalija
 Srbija
+Sudan
 Surinam
+SVALBARD AND JAN MAYEN
+Sveta Helena
+Sveta Lucija
+Sveti Vincent i Grenadine
+Sveti Barthelemy
+SVETI EUSTATIUS
+Sveti Kits i Nevis
+Sveti Tome i Principe
 Španija
 Šri Lanka
 Švedska
 Švicarska
 Tadžikistan
+TAHITI
 Tajland
+Tajvan - Kina
 Tanzanija
+Timor
 Togo
+TOKELAU
+Tonga
+Trinidad i Tobago
+TRISTAN DA CUNHA
+Tristan Da Cunha
 Tunis
 Turkmenistan
+TURKS AND CAICOS ISLANDS
 Turska
+Tuvalu
 Uganda
+Ujedinjeni Arapski Emirati
 Ukrajina
+UNITED STATES MINOR OUTLYING ISLANDS
+Urugvaj
 Uzbekistan
+Vanuatu
+Vatikan
 Velika Britanija
+Venecuela
+Vijetnam
+VIRGIN ISLANDS, BRITISH
+VIRGIN ISLANDS, U.S.
+Walis i Futuna
+WALLIS AND FUTUNA
+WESTERN SAHARA
 Zambija
 Zimbabve
 
@@ -206,6 +337,8 @@ Makao, Kina
 Maldivi
 MARSHALL ISLANDS
 MARTINIQUE
+Mauricijus
+Mauritanija
 MAYOTTE
 MICRONESIA, FEDERATED STATES OF
 Monako
@@ -288,7 +421,7 @@ ERROR COUNTRIES
 SUMMARY
 ========================================
 
-Available: 131
-Suspended: 114
-Unknown:   17
-Errors:    0
+All countries: 262
+Suspended:     116
+Unknown:       17
+Errors:        0
