@@ -19,6 +19,10 @@ SUSPENDED_FILE = Path("suspended_countries.txt")
 UNKNOWN_FILE = Path("unknown_countries.txt")
 ERROR_FILE = Path("error_countries.txt")
 
+# ============================================================
+# Dopisnica controls
+# ============================================================
+
 DESTINATION_SELECT = "ddlMeDoOdrediste"
 AIR_CHECKBOX = "chbMeDoAvionski"
 AIR_WEIGHT = "tbxMeDoAvioTezina"
@@ -58,7 +62,10 @@ def write_lines(path, values):
             encoding="utf-8",
         )
     else:
-        path.write_text("", encoding="utf-8")
+        path.write_text(
+            "",
+            encoding="utf-8",
+        )
 
 
 def save_debug(page, filename):
@@ -67,9 +74,15 @@ def save_debug(page, filename):
             page.content(),
             encoding="utf-8",
         )
-        print(f"DEBUG: Saved {filename}")
+
+        print(
+            f"DEBUG: Saved {filename}"
+        )
+
     except Exception as exc:
-        print(f"DEBUG: Could not save {filename}: {exc}")
+        print(
+            f"DEBUG: Could not save {filename}: {exc}"
+        )
 
 
 # ============================================================
@@ -77,9 +90,14 @@ def save_debug(page, filename):
 # ============================================================
 
 def selector_exists(page):
-    return page.locator(
-        f"select#{DESTINATION_SELECT}"
-    ).count() > 0
+    try:
+        return (
+            page.locator(
+                f"select#{DESTINATION_SELECT}"
+            ).count() > 0
+        )
+    except Exception:
+        return False
 
 
 def get_visible_text(page):
@@ -103,16 +121,19 @@ def get_result_text(page):
     ]
 
     for selector in selectors:
+
         try:
             locator = page.locator(selector)
 
             if locator.count() > 0:
+
                 text = normalize_text(
                     locator.first.inner_text()
                 )
 
                 if text:
                     return text
+
         except Exception:
             pass
 
@@ -126,16 +147,19 @@ def get_error_text(page):
     ]
 
     for selector in selectors:
+
         try:
             locator = page.locator(selector)
 
             if locator.count() > 0:
+
                 text = normalize_text(
                     locator.first.inner_text()
                 )
 
                 if text:
                     return text
+
         except Exception:
             pass
 
@@ -147,61 +171,42 @@ def get_error_text(page):
 # ============================================================
 
 def select_international_tab(page):
-    print("2. Selecting Međunarodni promet...")
+    """
+    Activate the DevExpress tab:
 
-    # --------------------------------------------------------
-    # First inspect the actual rendered tab control.
-    # --------------------------------------------------------
+        Međunarodni promet
 
-    tab_control = page.locator("#ASPxTabControl1")
+    IMPORTANT:
+
+    We intentionally DO NOT require
+    ddlMeDoOdrediste here.
+
+    The destination selector belongs to the Dopisnica
+    calculator state and may only appear after
+    ImageButton8 is activated.
+    """
+
+    print(
+        "2. Selecting Međunarodni promet..."
+    )
+
+    tab_control = page.locator(
+        "#ASPxTabControl1"
+    )
 
     if tab_control.count() == 0:
         raise RuntimeError(
             "ASPxTabControl1 was not found."
         )
 
-    print("   ASPxTabControl1 found.")
-
-    # --------------------------------------------------------
-    # Find the second tab.
-    #
-    # DevExpress normally renders the tabs as clickable
-    # elements inside the tab control.
-    # --------------------------------------------------------
-
-    candidates = []
-
-    try:
-        children = tab_control.locator(
-            "td, div, span, a"
-        )
-
-        count = children.count()
-
-        for i in range(count):
-            try:
-                element = children.nth(i)
-
-                text = normalize_text(
-                    element.inner_text()
-                )
-
-                if text:
-                    candidates.append(
-                        (i, text)
-                    )
-            except Exception:
-                continue
-
-    except Exception:
-        pass
-
     print(
-        f"   Tab text candidates: {len(candidates)}"
+        "   ASPxTabControl1 found."
     )
 
+    clicked = False
+
     # --------------------------------------------------------
-    # Try text first.
+    # Try visible tab text.
     # --------------------------------------------------------
 
     names = [
@@ -211,9 +216,8 @@ def select_international_tab(page):
         "Medjunarodni",
     ]
 
-    clicked = False
-
     for name in names:
+
         try:
             locator = page.get_by_text(
                 name,
@@ -222,25 +226,28 @@ def select_international_tab(page):
 
             count = locator.count()
 
-            if count:
-                for i in range(count):
-                    try:
-                        candidate = locator.nth(i)
+            for i in range(count):
 
-                        if candidate.is_visible():
-                            print(
-                                f"   Clicking tab text: {name}"
-                            )
+                try:
+                    candidate = locator.nth(i)
 
-                            candidate.click(
-                                timeout=10000
-                            )
-
-                            clicked = True
-                            break
-
-                    except Exception:
+                    if not candidate.is_visible():
                         continue
+
+                    print(
+                        f"   Clicking tab text: {name}"
+                    )
+
+                    candidate.click(
+                        timeout=10000
+                    )
+
+                    clicked = True
+
+                    break
+
+                except Exception:
+                    continue
 
             if clicked:
                 break
@@ -249,8 +256,7 @@ def select_international_tab(page):
             continue
 
     # --------------------------------------------------------
-    # If text click did not work, inspect the DevExpress
-    # generated tab elements and click the second tab.
+    # DevExpress fallback.
     # --------------------------------------------------------
 
     if not clicked:
@@ -270,7 +276,9 @@ def select_international_tab(page):
         for selector in tab_selectors:
 
             try:
-                locator = page.locator(selector)
+                locator = page.locator(
+                    selector
+                )
 
                 count = locator.count()
 
@@ -279,85 +287,69 @@ def select_international_tab(page):
                 )
 
                 if count >= 2:
+
                     locator.nth(1).click(
                         timeout=10000
                     )
 
                     clicked = True
+
                     break
 
-                if count == 1:
+                elif count == 1:
+
                     locator.first.click(
                         timeout=10000
                     )
 
                     clicked = True
+
                     break
 
             except Exception:
                 continue
 
-    # --------------------------------------------------------
-    # Give the ASP.NET AJAX / DevExpress callback time to
-    # complete.
-    # --------------------------------------------------------
-
-    if clicked:
-        print(
-            "   Waiting for Međunarodni promet callback..."
+    if not clicked:
+        save_debug(
+            page,
+            "debug_international_click_failure.html",
         )
 
-        try:
-            page.wait_for_load_state(
-                "networkidle",
-                timeout=15000,
-            )
-        except PlaywrightTimeoutError:
-            pass
-
-        page.wait_for_timeout(2000)
-
-    else:
         raise RuntimeError(
             "Could not click Međunarodni promet tab."
         )
 
     # --------------------------------------------------------
-    # The important test:
-    # Does the actual browser DOM now contain the country
-    # selector?
+    # Wait for ASP.NET AJAX / DevExpress processing.
+    #
+    # IMPORTANT:
+    #
+    # We do NOT check ddlMeDoOdrediste here.
     # --------------------------------------------------------
 
-    if not selector_exists(page):
+    print(
+        "   Waiting for Međunarodni promet callback..."
+    )
 
-        print(
-            "   Destination selector not immediately "
-            "visible; inspecting page..."
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=15000,
         )
+    except PlaywrightTimeoutError:
+        pass
 
-        save_debug(
-            page,
-            "debug_after_international.html",
-        )
-
-        # Sometimes the tab is activated but the contents
-        # appear a little later.
-        try:
-            page.wait_for_selector(
-                f"select#{DESTINATION_SELECT}",
-                timeout=15000,
-            )
-        except PlaywrightTimeoutError:
-            pass
-
-    if not selector_exists(page):
-        raise RuntimeError(
-            "Međunarodni promet was clicked, but "
-            f"#{DESTINATION_SELECT} is not present."
-        )
+    page.wait_for_timeout(
+        2000
+    )
 
     print(
-        "   Međunarodni promet activated successfully."
+        "   Međunarodni promet tab click completed."
+    )
+
+    print(
+        "   Continuing to Dopisnica without requiring "
+        f"#{DESTINATION_SELECT} yet."
     )
 
 
@@ -366,91 +358,106 @@ def select_international_tab(page):
 # ============================================================
 
 def select_dopisnica(page):
-    print("3. Selecting Dopisnica...")
+    """
+    Activate Dopisnica.
 
-    if not selector_exists(page):
-        raise RuntimeError(
-            "Destination selector is missing before "
-            "Dopisnica."
-        )
+    IMPORTANT:
 
-    # --------------------------------------------------------
-    # Check whether Dopisnica is already selected.
-    # --------------------------------------------------------
+    ddlMeDoOdrediste is NOT required before this click.
 
-    active = page.locator(
-        "img[src*='Dopisnica_Aktivna.png']"
+    We first activate ImageButton8 and only then wait for
+    ddlMeDoOdrediste to appear.
+    """
+
+    print(
+        "3. Selecting Dopisnica..."
     )
-
-    if active.count() > 0:
-        print(
-            "   Dopisnica is already active."
-        )
-        return
-
-    # --------------------------------------------------------
-    # The original HTML identifies ImageButton8 as the
-    # Dopisnica button.
-    #
-    # Use the actual browser click instead of manually
-    # constructing an ASP.NET POST.
-    # --------------------------------------------------------
-
-    selectors = [
-        f"input#{DOPISNICA_BUTTON}",
-        f"input[name='{DOPISNICA_BUTTON}']",
-        f"input[id$='{DOPISNICA_BUTTON}']",
-        f"img[src*='Dopisnica']",
-        "input[type='image']",
-    ]
 
     clicked = False
 
-    for selector in selectors:
+    # --------------------------------------------------------
+    # Check whether Dopisnica already appears active.
+    # --------------------------------------------------------
 
-        try:
-            locator = page.locator(selector)
+    try:
 
-            count = locator.count()
+        active = page.locator(
+            "img[src*='Dopisnica_Aktivna.png']"
+        )
 
-            if count == 0:
-                continue
+        if active.count() > 0:
 
-            for i in range(count):
+            print(
+                "   Dopisnica is already active."
+            )
 
-                candidate = locator.nth(i)
+            clicked = True
 
-                try:
-                    if not candidate.is_visible():
-                        continue
-                except Exception:
-                    pass
-
-                try:
-                    print(
-                        f"   Trying Dopisnica selector: "
-                        f"{selector}"
-                    )
-
-                    candidate.click(
-                        timeout=10000
-                    )
-
-                    clicked = True
-                    break
-
-                except Exception:
-                    continue
-
-            if clicked:
-                break
-
-        except Exception:
-            continue
+    except Exception:
+        pass
 
     # --------------------------------------------------------
-    # If the direct selector did not work, use JavaScript to
-    # locate ImageButton8 and trigger a real click.
+    # If not active, click ImageButton8.
+    # --------------------------------------------------------
+
+    if not clicked:
+
+        selectors = [
+            f"input#{DOPISNICA_BUTTON}",
+            f"input[name='{DOPISNICA_BUTTON}']",
+            f"input[id$='{DOPISNICA_BUTTON}']",
+            f"img[src*='Dopisnica']",
+        ]
+
+        for selector in selectors:
+
+            try:
+
+                locator = page.locator(
+                    selector
+                )
+
+                count = locator.count()
+
+                if count == 0:
+                    continue
+
+                for i in range(count):
+
+                    candidate = locator.nth(i)
+
+                    try:
+                        if not candidate.is_visible():
+                            continue
+                    except Exception:
+                        pass
+
+                    try:
+
+                        print(
+                            f"   Trying Dopisnica selector: "
+                            f"{selector}"
+                        )
+
+                        candidate.click(
+                            timeout=10000
+                        )
+
+                        clicked = True
+
+                        break
+
+                    except Exception:
+                        continue
+
+                if clicked:
+                    break
+
+            except Exception:
+                continue
+
+    # --------------------------------------------------------
+    # JavaScript fallback.
     # --------------------------------------------------------
 
     if not clicked:
@@ -461,25 +468,31 @@ def select_dopisnica(page):
         )
 
         try:
+
             clicked = page.evaluate(
                 """
                 () => {
                     const el =
-                        document.getElementById('ImageButton8');
+                        document.getElementById(
+                            'ImageButton8'
+                        );
 
                     if (!el) {
                         return false;
                     }
 
                     el.click();
+
                     return true;
                 }
                 """
             )
+
         except Exception:
             clicked = False
 
     if not clicked:
+
         save_debug(
             page,
             "debug_before_dopisnica_failure.html",
@@ -489,23 +502,48 @@ def select_dopisnica(page):
             "Could not click Dopisnica."
         )
 
+    # --------------------------------------------------------
+    # Wait for Dopisnica ASP.NET callback/postback.
+    # --------------------------------------------------------
+
     print(
         "   Waiting for Dopisnica callback..."
     )
 
     try:
+
         page.wait_for_load_state(
             "networkidle",
             timeout=15000,
         )
+
     except PlaywrightTimeoutError:
         pass
 
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(
+        2500
+    )
 
     # --------------------------------------------------------
-    # Country selector must remain available.
+    # NOW require the destination selector.
     # --------------------------------------------------------
+
+    if not selector_exists(page):
+
+        print(
+            "   Destination selector not immediately "
+            "visible after Dopisnica."
+        )
+
+        try:
+
+            page.wait_for_selector(
+                f"select#{DESTINATION_SELECT}",
+                timeout=15000,
+            )
+
+        except PlaywrightTimeoutError:
+            pass
 
     if not selector_exists(page):
 
@@ -515,12 +553,17 @@ def select_dopisnica(page):
         )
 
         raise RuntimeError(
-            "Dopisnica click completed, but "
-            f"#{DESTINATION_SELECT} disappeared."
+            "Dopisnica was clicked, but "
+            f"#{DESTINATION_SELECT} is not present."
         )
 
     print(
         "   Dopisnica selected successfully."
+    )
+
+    print(
+        f"   Destination selector "
+        f"#{DESTINATION_SELECT} is now available."
     )
 
 
@@ -529,13 +572,21 @@ def select_dopisnica(page):
 # ============================================================
 
 def select_air_transport(page):
-    print("4. Selecting Avionski prijenos...")
+    print(
+        "4. Selecting Avionski prijenos..."
+    )
 
     checkbox = page.locator(
         f"#{AIR_CHECKBOX}"
     )
 
     if checkbox.count() == 0:
+
+        save_debug(
+            page,
+            "debug_air_checkbox_missing.html",
+        )
+
         raise RuntimeError(
             f"#{AIR_CHECKBOX} was not found."
         )
@@ -545,48 +596,79 @@ def select_air_transport(page):
     # --------------------------------------------------------
 
     try:
+
         checked = checkbox.is_checked()
+
     except Exception:
+
         checked = False
 
     if checked:
+
         print(
             "   Avionski prijenos already enabled."
         )
+
         return
+
+    # --------------------------------------------------------
+    # Click/check checkbox.
+    # --------------------------------------------------------
 
     print(
         "   Clicking Avionski prijenos..."
     )
 
     try:
+
         checkbox.check(
             timeout=10000
         )
+
     except Exception:
 
-        # Fallback to click.
         checkbox.click(
             timeout=10000
         )
 
+    # --------------------------------------------------------
+    # Wait for ASP.NET postback.
+    # --------------------------------------------------------
+
     try:
+
         page.wait_for_load_state(
             "networkidle",
             timeout=15000,
         )
+
     except PlaywrightTimeoutError:
         pass
 
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(
+        1500
+    )
+
+    # --------------------------------------------------------
+    # Verify.
+    # --------------------------------------------------------
 
     try:
+
         if not checkbox.is_checked():
+
             raise RuntimeError(
                 "Avionski prijenos checkbox is "
                 "still unchecked."
             )
+
     except Exception as exc:
+
+        save_debug(
+            page,
+            "debug_air_checkbox_failure.html",
+        )
+
         raise RuntimeError(
             f"Could not enable Avionski prijenos: {exc}"
         )
@@ -610,17 +692,38 @@ def set_weight(page):
     )
 
     if weight.count() == 0:
+
+        save_debug(
+            page,
+            "debug_weight_missing.html",
+        )
+
         raise RuntimeError(
             f"#{AIR_WEIGHT} was not found."
         )
 
-    weight.fill(WEIGHT)
+    # --------------------------------------------------------
+    # Fill weight.
+    # --------------------------------------------------------
 
-    # Blur the input so any ASP.NET client-side change
-    # handlers execute.
-    weight.press("Tab")
+    weight.fill(
+        WEIGHT
+    )
 
-    page.wait_for_timeout(500)
+    # Trigger normal browser change/blur behavior.
+
+    try:
+
+        weight.press(
+            "Tab"
+        )
+
+    except Exception:
+        pass
+
+    page.wait_for_timeout(
+        500
+    )
 
     print(
         "   Weight set."
@@ -641,11 +744,19 @@ def get_destinations(page):
     )
 
     if select.count() == 0:
+
+        save_debug(
+            page,
+            "debug_destination_missing.html",
+        )
+
         raise RuntimeError(
             f"#{DESTINATION_SELECT} was not found."
         )
 
-    options = select.locator("option")
+    options = select.locator(
+        "option"
+    )
 
     count = options.count()
 
@@ -656,6 +767,7 @@ def get_destinations(page):
         option = options.nth(i)
 
         try:
+
             value = option.get_attribute(
                 "value"
             )
@@ -665,14 +777,19 @@ def get_destinations(page):
             )
 
             if value and name:
+
                 destinations.append(
-                    (value.strip(), name)
+                    (
+                        value.strip(),
+                        name,
+                    )
                 )
 
         except Exception:
             continue
 
     if not destinations:
+
         raise RuntimeError(
             "Destination selector exists but "
             "contains no countries."
@@ -696,23 +813,30 @@ def select_country(page, code):
     )
 
     if select.count() == 0:
+
         raise RuntimeError(
             f"#{DESTINATION_SELECT} disappeared."
         )
 
-    # Select the actual option.
+    # --------------------------------------------------------
+    # Select country.
+    # --------------------------------------------------------
+
     select.select_option(
         value=code
     )
 
-    # The original website uses onchange/postback.
-    # Playwright will allow the browser's real JavaScript
-    # event handler to execute.
+    # --------------------------------------------------------
+    # Allow onchange/postback JavaScript to execute.
+    # --------------------------------------------------------
+
     try:
+
         page.wait_for_load_state(
             "networkidle",
             timeout=15000,
         )
+
     except PlaywrightTimeoutError:
         pass
 
@@ -723,7 +847,7 @@ def select_country(page, code):
 
 def click_calculate(page):
     """
-    Find the real Izračunaj button and click it.
+    Find the actual Izračunaj button and click it.
     """
 
     selectors = [
@@ -737,7 +861,10 @@ def click_calculate(page):
     for selector in selectors:
 
         try:
-            locator = page.locator(selector)
+
+            locator = page.locator(
+                selector
+            )
 
             count = locator.count()
 
@@ -749,21 +876,31 @@ def click_calculate(page):
                 candidate = locator.nth(i)
 
                 try:
+
                     if not candidate.is_visible():
                         continue
+
                 except Exception:
                     pass
 
                 try:
+
+                    print(
+                        f"    Clicking calculate button "
+                        f"using {selector}"
+                    )
+
                     candidate.click(
                         timeout=10000
                     )
 
                     try:
+
                         page.wait_for_load_state(
                             "networkidle",
                             timeout=15000,
                         )
+
                     except PlaywrightTimeoutError:
                         pass
 
@@ -779,57 +916,116 @@ def click_calculate(page):
         except Exception:
             continue
 
+    save_debug(
+        page,
+        "debug_calculate_button_failure.html",
+    )
+
     raise RuntimeError(
         "Could not find or click Izračunaj."
     )
 
+
+# ============================================================
+# Calculate one country
+# ============================================================
 
 def calculate_country(page, code):
     """
     Select destination and calculate the 10 g price.
 
     Returns:
-        status, detail
+
+        ("AVAILABLE", price)
+
+        ("SUSPENDED", message)
+
+        ("UNKNOWN", detail)
     """
+
+    # --------------------------------------------------------
+    # Select country.
+    # --------------------------------------------------------
 
     select_country(
         page,
         code,
     )
 
-    # Make absolutely sure the weight is still 10 g.
+    # --------------------------------------------------------
+    # Make absolutely sure weight is still 10 g.
+    # --------------------------------------------------------
+
     weight = page.locator(
         f"#{AIR_WEIGHT}"
     )
 
     if weight.count() > 0:
+
         try:
-            weight.fill(WEIGHT)
+
+            current_value = weight.input_value()
+
+            if current_value != WEIGHT:
+
+                weight.fill(
+                    WEIGHT
+                )
+
+                try:
+                    weight.press(
+                        "Tab"
+                    )
+                except Exception:
+                    pass
+
         except Exception:
             pass
 
-    click_calculate(page)
+    # --------------------------------------------------------
+    # Calculate.
+    # --------------------------------------------------------
 
-    text = get_result_text(page)
-
-    error_text = get_error_text(page)
+    click_calculate(
+        page
+    )
 
     # --------------------------------------------------------
-    # Suspended / unavailable
+    # Read result.
     # --------------------------------------------------------
+
+    text = get_result_text(
+        page
+    )
+
+    error_text = get_error_text(
+        page
+    )
 
     combined = normalize_text(
         f"{error_text} {text}"
     )
 
-    if SUSPENDED_MESSAGE.lower() in combined.lower():
+    # --------------------------------------------------------
+    # Suspended / unavailable.
+    # --------------------------------------------------------
+
+    if (
+        SUSPENDED_MESSAGE.lower()
+        in combined.lower()
+    ):
+
         return (
             "SUSPENDED",
             SUSPENDED_MESSAGE,
         )
 
     # --------------------------------------------------------
-    # Price
+    # Primary price format.
+    #
+    # Example:
+    #
+    # Ukupna cijena 2,00 KM
     # --------------------------------------------------------
 
     match = re.search(
@@ -852,13 +1048,17 @@ def calculate_country(page, code):
         )
 
         try:
+
             price_value = float(
                 normalized
             )
+
         except ValueError:
+
             price_value = None
 
         if price_value == 0:
+
             return (
                 "UNKNOWN",
                 f"Ukupna cijena {price_text}",
@@ -870,7 +1070,7 @@ def calculate_country(page, code):
         )
 
     # --------------------------------------------------------
-    # Other recognizable price format.
+    # General KM format fallback.
     # --------------------------------------------------------
 
     match = re.search(
@@ -891,13 +1091,17 @@ def calculate_country(page, code):
         )
 
         try:
+
             price_value = float(
                 normalized
             )
+
         except ValueError:
+
             price_value = None
 
         if price_value == 0:
+
             return (
                 "UNKNOWN",
                 f"Ukupna cijena {price_text}",
@@ -909,7 +1113,7 @@ def calculate_country(page, code):
         )
 
     # --------------------------------------------------------
-    # Nothing recognizable.
+    # No recognizable result.
     # --------------------------------------------------------
 
     return (
@@ -962,9 +1166,9 @@ def main():
 
         try:
 
-            # ------------------------------------------------
+            # =================================================
             # 1. Open calculator
-            # ------------------------------------------------
+            # =================================================
 
             page.goto(
                 URL,
@@ -973,10 +1177,12 @@ def main():
             )
 
             try:
+
                 page.wait_for_load_state(
                     "networkidle",
                     timeout=20000,
                 )
+
             except PlaywrightTimeoutError:
                 pass
 
@@ -994,49 +1200,50 @@ def main():
                 "debug_original_page.html",
             )
 
-            # ------------------------------------------------
-            # 2. International traffic
-            # ------------------------------------------------
+            # =================================================
+            # 2. Međunarodni promet
+            # =================================================
 
             select_international_tab(
                 page
             )
 
-            # ------------------------------------------------
+            # =================================================
             # 3. Dopisnica
-            # ------------------------------------------------
+            # =================================================
 
             select_dopisnica(
                 page
             )
 
-            # ------------------------------------------------
-            # 4. Read countries
-            # ------------------------------------------------
+            # =================================================
+            # 4. Read country list
+            # =================================================
 
             destinations = get_destinations(
                 page
             )
 
-            # ------------------------------------------------
-            # 5. Air transport
-            # ------------------------------------------------
+            # =================================================
+            # 5. Avionski prijenos
+            # =================================================
 
             select_air_transport(
                 page
             )
 
-            # ------------------------------------------------
+            # =================================================
             # 6. Weight
-            # ------------------------------------------------
+            # =================================================
 
             set_weight(
                 page
             )
 
-            # ------------------------------------------------
-            # Re-read list after all controls are configured.
-            # ------------------------------------------------
+            # =================================================
+            # Re-read destination list after all controls
+            # have been configured.
+            # =================================================
 
             destinations = get_destinations(
                 page
@@ -1048,9 +1255,9 @@ def main():
                 f"{len(destinations)} countries."
             )
 
-            # ------------------------------------------------
-            # 7. Test countries
-            # ------------------------------------------------
+            # =================================================
+            # 7. Check every destination
+            # =================================================
 
             print()
             print(
@@ -1080,6 +1287,10 @@ def main():
                         code,
                     )
 
+                    # -----------------------------------------
+                    # Available
+                    # -----------------------------------------
+
                     if status == "AVAILABLE":
 
                         print(
@@ -1092,6 +1303,10 @@ def main():
                             country
                         )
 
+                    # -----------------------------------------
+                    # Suspended
+                    # -----------------------------------------
+
                     elif status == "SUSPENDED":
 
                         print(
@@ -1102,6 +1317,10 @@ def main():
                         suspended.append(
                             country
                         )
+
+                    # -----------------------------------------
+                    # Unknown
+                    # -----------------------------------------
 
                     else:
 
@@ -1126,19 +1345,17 @@ def main():
                         f"{country} | {exc}"
                     )
 
-                    # Try to recover by reloading the page
-                    # and rebuilding the browser state.
-                    #
-                    # A page callback can occasionally leave
-                    # the ASP.NET application in a transient
-                    # state. Rebuilding is safer than continuing
-                    # with a broken page.
+                # -----------------------------------------
+                # Don't hammer the server.
+                # -----------------------------------------
 
-                time.sleep(0.5)
+                time.sleep(
+                    0.5
+                )
 
-            # ------------------------------------------------
+            # =================================================
             # 8. Write output files
-            # ------------------------------------------------
+            # =================================================
 
             write_lines(
                 AVAILABLE_FILE,
@@ -1160,35 +1377,44 @@ def main():
                 errors,
             )
 
-            # ------------------------------------------------
+            # =================================================
             # 9. Summary
-            # ------------------------------------------------
+            # =================================================
 
             print()
+
             print(
                 "========================================"
             )
+
             print(
                 "Finished."
             )
+
             print(
                 "========================================"
             )
+
             print(
                 f"Destinations: {len(destinations)}"
             )
+
             print(
                 f"Available:    {len(available)}"
             )
+
             print(
                 f"Suspended:    {len(suspended)}"
             )
+
             print(
                 f"Unknown:      {len(unknown)}"
             )
+
             print(
                 f"Errors:       {len(errors)}"
             )
+
             print(
                 "========================================"
             )
@@ -1196,12 +1422,15 @@ def main():
             print(
                 f"Available: {AVAILABLE_FILE}"
             )
+
             print(
                 f"Suspended: {SUSPENDED_FILE}"
             )
+
             print(
                 f"Unknown:   {UNKNOWN_FILE}"
             )
+
             print(
                 f"Errors:    {ERROR_FILE}"
             )
@@ -1211,9 +1440,14 @@ def main():
             browser.close()
 
 
+# ============================================================
+# Entry point
+# ============================================================
+
 if __name__ == "__main__":
 
     try:
+
         main()
 
     except Exception as exc:
