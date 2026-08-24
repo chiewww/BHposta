@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
+import re
 import sys
-from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
 import urllib3
 
 
@@ -25,163 +25,15 @@ HEADERS = {
     ),
 }
 
-DEBUG_INITIAL = Path(
-    "debug_initial.html"
-)
-
-DEBUG_INTERNATIONAL = Path(
-    "debug_international.html"
-)
-
 urllib3.disable_warnings(
     urllib3.exceptions.InsecureRequestWarning
 )
 
 
-def save_response(path, response):
-    path.write_text(
-        response.text,
-        encoding="utf-8",
-    )
-
-    print(
-        f"Saved response to: {path}"
-    )
-
-
-def find_calculator_form(response):
-    """
-    Find the actual ASP.NET calculator form.
-
-    The page contains other forms, including an outer
-    WordPress form. We must NOT simply use soup.find("form").
-    """
-
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
-
-    forms = soup.find_all("form")
-
-    print()
-    print(
-        f"Found {len(forms)} <form> elements."
-    )
-
-    for index, form in enumerate(forms, start=1):
-        form_text = str(form)
-
-        indicators = [
-            "ASPxTabControl1",
-            "ImageButton8",
-            "ddlMeDoOdrediste",
-            "pnlMeDopisnice",
-            "ddlMeObPiOderdiste",
-        ]
-
-        matches = [
-            item
-            for item in indicators
-            if item in form_text
-        ]
-
-        print()
-        print(
-            f"FORM #{index}"
-        )
-
-        print(
-            f"  action = {form.get('action')}"
-        )
-
-        print(
-            f"  method = {form.get('method')}"
-        )
-
-        if matches:
-            print(
-                "  calculator controls = "
-                + ", ".join(matches)
-            )
-        else:
-            print(
-                "  calculator controls = NONE"
-            )
-
-        if matches:
-            print()
-            print(
-                f"Using FORM #{index}."
-            )
-
-            return soup, form
-
-    raise RuntimeError(
-        "Could not find the ASP.NET calculator form. "
-        "None of the forms contained the expected "
-        "calculator controls."
-    )
-
-
-def hidden_fields(form):
-    data = {}
-
-    for element in form.select(
-        'input[type="hidden"]'
-    ):
-        name = element.get("name")
-
-        if name:
-            data[name] = element.get(
-                "value",
-                "",
-            )
-
-    return data
-
-
-def inspect_calculator(response, label):
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
-
+def print_section(title):
     print()
     print("=" * 70)
-    print(label)
-    print("=" * 70)
-
-    controls = [
-        "ASPxTabControl1",
-        "ASPxTabControl1_AT1",
-        "ImageButton8",
-        "pnlMeDopisnice",
-        "ddlMeDoOdrediste",
-        "pnlMeObicnoPismo",
-        "ddlMeObPiOderdiste",
-    ]
-
-    for control_id in controls:
-        element = soup.find(
-            id=control_id
-        )
-
-        if element is None:
-            print(
-                f"{control_id}: NOT FOUND"
-            )
-        else:
-            print(
-                f"{control_id}: FOUND"
-            )
-
-            if control_id == "ImageButton8":
-                print(
-                    f"  src = "
-                    f"{element.get('src')}"
-                )
-
+    print(title)
     print("=" * 70)
 
 
@@ -189,12 +41,8 @@ def main():
     session = requests.Session()
 
     try:
-        # --------------------------------------------------
-        # STEP 1
-        # --------------------------------------------------
-
-        print(
-            "STEP 1: Fetching calculator page..."
+        print_section(
+            "STEP 1: FETCHING CALCULATOR PAGE"
         )
 
         response = session.get(
@@ -208,13 +56,16 @@ def main():
         response.raise_for_status()
 
         print(
-            f"HTTP status: "
-            f"{response.status_code}"
+            f"HTTP status: {response.status_code}"
         )
 
         print(
-            f"Final URL: "
-            f"{response.url}"
+            f"Final URL: {response.url}"
+        )
+
+        print(
+            f"Content-Type: "
+            f"{response.headers.get('Content-Type')}"
         )
 
         print(
@@ -222,136 +73,302 @@ def main():
             f"{len(response.content):,} bytes"
         )
 
-        save_response(
-            DEBUG_INITIAL,
-            response,
-        )
-
-        inspect_calculator(
-            response,
-            "INITIAL CALCULATOR PAGE",
-        )
+        html = response.text
 
         # --------------------------------------------------
-        # STEP 2
+        # Search for calculator-related strings
         # --------------------------------------------------
 
-        print()
-        print(
-            "STEP 2: Finding the calculator form..."
+        print_section(
+            "STEP 2: SEARCHING PAGE FOR CALCULATOR MARKERS"
         )
 
-        soup, form = find_calculator_form(
-            response
-        )
+        markers = [
+            "ASPxTabControl1",
+            "ImageButton8",
+            "ddlMeDoOdrediste",
+            "pnlMeDopisnice",
+            "kalkulator",
+            "calculator",
+            "Dopisnica",
+            "Međunarodni promet",
+        ]
 
-        print()
-        print(
-            "Calculator form:"
-        )
+        for marker in markers:
+            count = html.lower().count(
+                marker.lower()
+            )
 
-        print(
-            f"Action: "
-            f"{form.get('action')}"
-        )
-
-        print(
-            f"Method: "
-            f"{form.get('method')}"
-        )
+            print(
+                f"{marker}: {count} occurrence(s)"
+            )
 
         # --------------------------------------------------
-        # STEP 3
+        # Find iframe elements
         # --------------------------------------------------
 
-        print()
+        print_section(
+            "STEP 3: SEARCHING FOR IFRAMES"
+        )
+
+        iframe_pattern = re.compile(
+            r"<iframe\b[^>]*>",
+            re.IGNORECASE,
+        )
+
+        iframes = iframe_pattern.findall(
+            html
+        )
+
         print(
-            "STEP 3: Collecting ASP.NET state..."
+            f"Found {len(iframes)} iframe(s)."
         )
 
-        data = hidden_fields(
-            form
-        )
-
-        print(
-            f"Hidden fields collected: "
-            f"{len(data)}"
-        )
-
-        for name in sorted(data):
-            if name in (
-                "__VIEWSTATE",
-                "__VIEWSTATEGENERATOR",
-                "__EVENTVALIDATION",
-                "__EVENTTARGET",
-                "__EVENTARGUMENT",
+        if iframes:
+            for number, iframe in enumerate(
+                iframes,
+                start=1,
             ):
-                value = data[name]
-
+                print()
                 print(
-                    f"  {name}: "
-                    f"{len(value)} characters"
+                    f"IFRAME #{number}:"
                 )
 
+                print(iframe)
+
+                src_match = re.search(
+                    r"""src\s*=\s*["']([^"']+)["']""",
+                    iframe,
+                    re.IGNORECASE,
+                )
+
+                if src_match:
+                    src = src_match.group(1)
+
+                    absolute_url = urljoin(
+                        response.url,
+                        src,
+                    )
+
+                    print(
+                        f"Absolute URL: "
+                        f"{absolute_url}"
+                    )
+        else:
+            print(
+                "No iframe elements found."
+            )
+
         # --------------------------------------------------
-        # STEP 4
+        # Search for URLs containing calculator
         # --------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # We are NOT going to submit anything yet.
-        #
-        # First we need to confirm that we found the
-        # correct ASP.NET form.
-        #
-        # The previous script accidentally submitted the
-        # outer WordPress form to https://www.posta.ba/.
-        #
-        # This script stops here so we can verify the form.
-        #
 
-        print()
-        print(
-            "=" * 70
+        print_section(
+            "STEP 4: URLS CONTAINING 'KALKULATOR' "
+            "OR 'CALCULATOR'"
+        )
+
+        url_pattern = re.compile(
+            r"""https?://[^"'<>\s]+""",
+            re.IGNORECASE,
+        )
+
+        urls = url_pattern.findall(
+            html
+        )
+
+        matching_urls = []
+
+        for found_url in urls:
+            clean_url = found_url.rstrip(
+                ".,);"
+            )
+
+            if (
+                "kalkulator" in clean_url.lower()
+                or
+                "calculator" in clean_url.lower()
+            ):
+                if clean_url not in matching_urls:
+                    matching_urls.append(
+                        clean_url
+                    )
+
+        if matching_urls:
+            for found_url in matching_urls:
+                print(found_url)
+        else:
+            print(
+                "No calculator-related URLs "
+                "found in the HTML."
+            )
+
+        # --------------------------------------------------
+        # Search for AJAX / JavaScript URLs
+        # --------------------------------------------------
+
+        print_section(
+            "STEP 5: JAVASCRIPT REFERENCES "
+            "RELATED TO CALCULATOR"
+        )
+
+        script_pattern = re.compile(
+            r"""<script\b[^>]*src\s*=\s*["']([^"']+)["']""",
+            re.IGNORECASE,
+        )
+
+        scripts = script_pattern.findall(
+            html
+        )
+
+        calculator_scripts = []
+
+        for script in scripts:
+            absolute_script = urljoin(
+                response.url,
+                script,
+            )
+
+            if (
+                "kalkulator"
+                in absolute_script.lower()
+                or
+                "calculator"
+                in absolute_script.lower()
+            ):
+                calculator_scripts.append(
+                    absolute_script
+                )
+
+        if calculator_scripts:
+            for script in calculator_scripts:
+                print(script)
+        else:
+            print(
+                "No calculator-specific "
+                "JavaScript files found."
+            )
+
+        # --------------------------------------------------
+        # Search around text "Kalkulator"
+        # --------------------------------------------------
+
+        print_section(
+            "STEP 6: HTML AROUND 'KALKULATOR'"
+        )
+
+        lower_html = html.lower()
+
+        positions = []
+
+        search_terms = [
+            "kalkulator",
+            "calculator",
+            "dopisnica",
+        ]
+
+        for term in search_terms:
+            start = 0
+
+            while True:
+                position = lower_html.find(
+                    term,
+                    start,
+                )
+
+                if position == -1:
+                    break
+
+                positions.append(
+                    (
+                        position,
+                        term,
+                    )
+                )
+
+                start = position + len(term)
+
+        positions.sort()
+
+        if positions:
+            shown = set()
+
+            for position, term in positions[:20]:
+                context_start = max(
+                    0,
+                    position - 500,
+                )
+
+                context_end = min(
+                    len(html),
+                    position + 1000,
+                )
+
+                context = html[
+                    context_start:context_end
+                ]
+
+                key = (
+                    context_start,
+                    context_end,
+                )
+
+                if key in shown:
+                    continue
+
+                shown.add(key)
+
+                print()
+                print(
+                    f"--- occurrence: "
+                    f"{term} ---"
+                )
+
+                print(context)
+
+        else:
+            print(
+                "No occurrences found."
+            )
+
+        # --------------------------------------------------
+        # Save complete response
+        # --------------------------------------------------
+
+        with open(
+            "debug_page.html",
+            "w",
+            encoding="utf-8",
+        ) as file:
+            file.write(html)
+
+        print_section(
+            "DONE"
         )
 
         print(
-            "SUCCESS: The correct calculator form "
-            "was found."
-        )
-
-        print(
-            "=" * 70
-        )
-
-        print()
-        print(
-            "The form action above should be the "
-            "calculator's ASP.NET action, not the "
-            "WordPress homepage form."
-        )
-
-        print()
-        print(
-            "No POST was performed."
+            "Saved complete response as "
+            "debug_page.html"
         )
 
         return 0
 
     except requests.RequestException as exc:
-        print()
-        print(
-            "ERROR: HTTP request failed:"
+        print_section(
+            "HTTP ERROR"
         )
+
         print(exc)
+
         return 1
 
     except Exception as exc:
-        print()
-        print(
-            "ERROR:"
+        print_section(
+            "ERROR"
         )
+
         print(exc)
+
         return 1
 
 
