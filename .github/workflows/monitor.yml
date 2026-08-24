@@ -1,178 +1,17 @@
-name: Monitor BH Posta Countries
-
-on:
-  schedule:
-    # Run once every day at 03:00 UTC.
-    - cron: "0 3 * * *"
-
-  # Allows manual testing.
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
-jobs:
-  monitor:
-    runs-on: ubuntu-latest
-
-    # The monitor checks 262 destinations.
-    # Give it enough time to complete reliably.
-    timeout-minutes: 30
-
-    env:
-      PYTHONUNBUFFERED: "1"
-
-    steps:
-
-      # ======================================================
-      # Check out repository
-      # ======================================================
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      # ======================================================
-      # Set up Python
-      # ======================================================
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
-      # ======================================================
-      # Install Python dependencies
-      # ======================================================
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install \
-            playwright \
-            requests \
-            beautifulsoup4
-
-      # ======================================================
-      # Install Chromium + Linux dependencies
-      # ======================================================
-      - name: Install Playwright Chromium
-        run: |
-          python -m playwright install --with-deps chromium
-
-      # ======================================================
-      # Show environment information
-      # ======================================================
-      - name: Show environment
-        run: |
-          echo "========================================"
-          echo "ENVIRONMENT"
-          echo "========================================"
-
-          python --version
-          python -m pip --version
-          python -m playwright --version
-
-          echo
-          echo "Working directory:"
-          pwd
-
-          echo
-          echo "Repository files:"
-          ls -la
-
-      # ======================================================
-      # Run BH Posta monitor
-      # ======================================================
-      - name: Monitor BH Posta countries
-        id: monitor
-        run: |
-          echo "========================================"
-          echo "STARTING BH POSTA MONITOR"
-          echo "========================================"
-
-          python -u monitor.py
-
-      # ======================================================
-      # Show generated files
-      # ======================================================
-      - name: Show monitor results
-        if: always()
-        run: |
-          echo
-          echo "========================================"
-          echo "AVAILABLE COUNTRIES"
-          echo "========================================"
-
-          if [ -f available_countries.txt ]; then
-            cat available_countries.txt
-          else
-            echo "available_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "SUSPENDED COUNTRIES"
-          echo "========================================"
-
-          if [ -f suspended_countries.txt ]; then
-            cat suspended_countries.txt
-          else
-            echo "suspended_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "UNKNOWN COUNTRIES"
-          echo "========================================"
-
-          if [ -f unknown_countries.txt ]; then
-            cat unknown_countries.txt
-          else
-            echo "unknown_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "ERROR COUNTRIES"
-          echo "========================================"
-
-          if [ -f error_countries.txt ]; then
-            cat error_countries.txt
-          else
-            echo "error_countries.txt not found"
-          fi
-
-      # ======================================================
-      # Save debug files if monitor fails
-      # ======================================================
-      - name: Upload debug files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bh-posta-debug
-          if-no-files-found: ignore
-          retention-days: 7
-          path: |
-            debug_original_page.html
-            debug_after_international.html
-            debug_after_dopisnica.html
-            debug_before_dopisnica_failure.html
-            debug_after_dopisnica_failure.html
-            debug_failure.html
-
-      # ======================================================
+      # ------------------------------------------------------
       # Check whether monitored files changed
-      # ======================================================
+      # ------------------------------------------------------
       - name: Check for changes
         id: changes
         if: always()
-        shell: bash
         run: |
-          changed=false
+          echo "========================================"
+          echo "CHECKING FOR OUTPUT FILE CHANGES"
+          echo "========================================"
 
-          echo "========================================"
-          echo "CHECKING FOR CHANGES"
-          echo "========================================"
+          git status --short
+
+          changed=false
 
           for file in \
             available_countries.txt \
@@ -180,35 +19,39 @@ jobs:
             unknown_countries.txt \
             error_countries.txt
           do
-
             if [ -f "$file" ]; then
-
-              echo
-              echo "Checking: $file"
+              echo "Found: $file"
 
               if ! git diff --quiet -- "$file"; then
                 changed=true
-                echo "Changed: YES"
-              else
-                echo "Changed: NO"
               fi
 
+              if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+                echo "  -> tracked"
+              else
+                echo "  -> untracked"
+                changed=true
+              fi
             else
-
-              echo "Not generated: $file"
-
+              echo "Missing: $file"
             fi
-
           done
 
-          echo
-
           if [ "$changed" = "true" ]; then
-
             echo "changed=true" >> "$GITHUB_OUTPUT"
 
+            echo
+            echo "Changes detected."
+            echo
             echo "========================================"
-            echo "CHANGES DETECTED"
+            echo "STATUS"
+            echo "========================================"
+
+            git status --short
+
+            echo
+            echo "========================================"
+            echo "DIFF"
             echo "========================================"
 
             git diff -- \
@@ -218,26 +61,16 @@ jobs:
               error_countries.txt || true
 
           else
-
             echo "changed=false" >> "$GITHUB_OUTPUT"
-
-            echo "========================================"
-            echo "NO CHANGES DETECTED"
-            echo "========================================"
-
+            echo "No changes detected."
           fi
 
-      # ======================================================
+      # ------------------------------------------------------
       # Commit changed country lists
-      # ======================================================
+      # ------------------------------------------------------
       - name: Commit changed country lists
         if: steps.changes.outputs.changed == 'true'
-        shell: bash
         run: |
-          echo "========================================"
-          echo "COMMITTING COUNTRY LIST CHANGES"
-          echo "========================================"
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -247,31 +80,8 @@ jobs:
             unknown_countries.txt \
             error_countries.txt
 
-          if git diff --cached --quiet; then
-            echo "Nothing staged to commit."
-            exit 0
-          fi
+          git status --short
 
-          git commit \
-            -m "Update international postcard country lists"
+          git commit -m "Update international postcard country lists"
 
           git push
-
-      # ======================================================
-      # Final status
-      # ======================================================
-      - name: Final status
-        if: always()
-        run: |
-          echo
-          echo "========================================"
-          echo "BH POSTA MONITOR FINISHED"
-          echo "========================================"
-
-          if [ "${{ steps.monitor.outcome }}" = "success" ]; then
-            echo "Monitor status: SUCCESS"
-          else
-            echo "Monitor status: FAILED"
-          fi
-
-          echo "========================================"
