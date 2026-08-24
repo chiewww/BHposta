@@ -1,11 +1,12 @@
-import html
 import re
 import sys
 import time
 from pathlib import Path
 
-import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import (
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
 
 
 URL = (
@@ -17,1109 +18,903 @@ AVAILABLE_FILE = Path("available_countries.txt")
 SUSPENDED_FILE = Path("suspended_countries.txt")
 UNKNOWN_FILE = Path("unknown_countries.txt")
 ERROR_FILE = Path("error_countries.txt")
-OUTPUT_FILE = Path("output.txt")
 
 DESTINATION_SELECT = "ddlMeDoOdrediste"
 AIR_CHECKBOX = "chbMeDoAvionski"
 AIR_WEIGHT = "tbxMeDoAvioTezina"
+
 DOPISNICA_BUTTON = "ImageButton8"
 
-WEIGHT = "10"
-
-ERROR_TEXT = (
+SUSPENDED_MESSAGE = (
     "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 )
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 "
-        "(KHTML, like Gecko) "
-        "Chrome/151.0.0.0 "
-        "Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+WEIGHT = "10"
+
+WAIT_MS = 1500
 
 
 # ============================================================
-# General helpers
+# Utility
 # ============================================================
 
-def response_soup(response):
-    response.raise_for_status()
-    return BeautifulSoup(response.text, "html.parser")
+def normalize_text(text):
+    if text is None:
+        return ""
+
+    text = str(text)
+
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
 
 
-def get_hidden_fields(soup):
-    data = {}
+def write_lines(path, values):
+    values = list(values)
 
-    for element in soup.select("input[type='hidden']"):
-        name = element.get("name")
+    if values:
+        path.write_text(
+            "\n".join(values) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        path.write_text("", encoding="utf-8")
 
-        if name:
-            data[name] = element.get("value", "")
 
-    return data
+def save_debug(page, filename):
+    try:
+        Path(filename).write_text(
+            page.content(),
+            encoding="utf-8",
+        )
+        print(f"DEBUG: Saved {filename}")
+    except Exception as exc:
+        print(f"DEBUG: Could not save {filename}: {exc}")
 
 
-def add_form_controls(soup, data):
+# ============================================================
+# Page inspection
+# ============================================================
+
+def selector_exists(page):
+    return page.locator(
+        f"select#{DESTINATION_SELECT}"
+    ).count() > 0
+
+
+def get_visible_text(page):
+    try:
+        return normalize_text(
+            page.locator("body").inner_text()
+        )
+    except Exception:
+        return ""
+
+
+def get_result_text(page):
     """
-    Add the current ASP.NET form controls.
+    Look specifically for the calculator result label,
+    but also inspect the page text as a fallback.
     """
 
-    form = soup.find("form")
+    selectors = [
+        "#lblRezultat",
+        "[id$='lblRezultat']",
+    ]
 
-    if not form:
-        raise RuntimeError("ASP.NET form was not found.")
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
 
-    for element in form.find_all(
-        ["input", "select", "textarea"]
-    ):
-        name = element.get("name")
-
-        if not name:
-            continue
-
-        element_type = element.get(
-            "type",
-            "",
-        ).lower()
-
-        if element_type == "hidden":
-            continue
-
-        if element_type in (
-            "submit",
-            "image",
-            "button",
-            "reset",
-            "file",
-        ):
-            continue
-
-        if element_type in (
-            "checkbox",
-            "radio",
-        ):
-            if element.has_attr("checked"):
-                data[name] = element.get(
-                    "value",
-                    "on",
+            if locator.count() > 0:
+                text = normalize_text(
+                    locator.first.inner_text()
                 )
 
-            continue
+                if text:
+                    return text
+        except Exception:
+            pass
 
-        if element.name == "select":
-            selected = element.find(
-                "option",
-                selected=True,
-            )
+    return get_visible_text(page)
 
-            if selected:
-                data[name] = selected.get(
-                    "value",
-                    "",
+
+def get_error_text(page):
+    selectors = [
+        "#lblMeObPiPoruka",
+        "[id$='lblMeObPiPoruka']",
+    ]
+
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+
+            if locator.count() > 0:
+                text = normalize_text(
+                    locator.first.inner_text()
                 )
-            else:
-                first = element.find("option")
 
-                if first:
-                    data[name] = first.get(
-                        "value",
-                        "",
+                if text:
+                    return text
+        except Exception:
+            pass
+
+    return ""
+
+
+# ============================================================
+# International tab
+# ============================================================
+
+def select_international_tab(page):
+    print("2. Selecting Međunarodni promet...")
+
+    # --------------------------------------------------------
+    # First inspect the actual rendered tab control.
+    # --------------------------------------------------------
+
+    tab_control = page.locator("#ASPxTabControl1")
+
+    if tab_control.count() == 0:
+        raise RuntimeError(
+            "ASPxTabControl1 was not found."
+        )
+
+    print("   ASPxTabControl1 found.")
+
+    # --------------------------------------------------------
+    # Find the second tab.
+    #
+    # DevExpress normally renders the tabs as clickable
+    # elements inside the tab control.
+    # --------------------------------------------------------
+
+    candidates = []
+
+    try:
+        children = tab_control.locator(
+            "td, div, span, a"
+        )
+
+        count = children.count()
+
+        for i in range(count):
+            try:
+                element = children.nth(i)
+
+                text = normalize_text(
+                    element.inner_text()
+                )
+
+                if text:
+                    candidates.append(
+                        (i, text)
                     )
-
-        else:
-            data[name] = element.get(
-                "value",
-                "",
-            )
-
-    return data
-
-
-# ============================================================
-# ASP.NET AJAX parser
-# ============================================================
-
-def parse_ajax_records(text):
-    """
-    Parse the ASP.NET AJAX pipe-delimited response.
-
-    The BH Posta server returns records such as:
-
-        updatePanel
-        hiddenField
-        scriptBlock
-        scriptStartupBlock
-
-    This parser intentionally preserves the HTML returned by
-    UpdatePanel records.
-    """
-
-    records = []
-
-    position = 0
-    text_length = len(text)
-
-    while position < text_length:
-
-        separator = text.find(
-            "|",
-            position,
-        )
-
-        if separator == -1:
-            break
-
-        length_text = text[
-            position:separator
-        ]
-
-        if not length_text.isdigit():
-            position += 1
-            continue
-
-        record_length = int(
-            length_text
-        )
-
-        record_start = separator + 1
-
-        if record_start >= text_length:
-            break
-
-        type_separator = text.find(
-            "|",
-            record_start,
-        )
-
-        if type_separator == -1:
-            break
-
-        record_type = text[
-            record_start:type_separator
-        ]
-
-        content_start = (
-            type_separator + 1
-        )
-
-        if record_type in (
-            "updatePanel",
-            "hiddenField",
-            "scriptBlock",
-            "scriptStartupBlock",
-        ):
-            content_end = (
-                content_start
-                + record_length
-            )
-
-            if content_end <= text_length:
-
-                content = text[
-                    content_start:content_end
-                ]
-
-                records.append(
-                    (
-                        record_type,
-                        content,
-                    )
-                )
-
-                position = (
-                    content_end + 1
-                )
-
+            except Exception:
                 continue
 
-        position = content_start
-
-    return records
-
-
-def parse_delta_response(
-    response,
-    old_soup,
-    debug_name=None,
-):
-    """
-    Process an ASP.NET AJAX response.
-
-    The original document is retained and UpdatePanel contents
-    are merged into it.
-    """
-
-    response.raise_for_status()
-
-    text = response.text
-
-    if debug_name:
-        Path(debug_name).write_text(
-            text,
-            encoding="utf-8",
-        )
-
-    lower = text.lower()
-
-    # Complete HTML response.
-    if (
-        "<html" in lower
-        or "<!doctype" in lower
-    ):
-        return BeautifulSoup(
-            text,
-            "html.parser",
-        )
-
-    soup = BeautifulSoup(
-        str(old_soup),
-        "html.parser",
-    )
-
-    records = parse_ajax_records(
-        text
-    )
-
-    update_panel_count = sum(
-        1
-        for record_type, _ in records
-        if record_type == "updatePanel"
-    )
-
-    hidden_field_count = sum(
-        1
-        for record_type, _ in records
-        if record_type == "hiddenField"
-    )
+    except Exception:
+        pass
 
     print(
-        "DEBUG: AJAX records="
-        f"{len(records)}, "
-        f"UpdatePanels={update_panel_count}, "
-        f"hiddenFields={hidden_field_count}"
+        f"   Tab text candidates: {len(candidates)}"
     )
 
     # --------------------------------------------------------
-    # Hidden fields
+    # Try text first.
     # --------------------------------------------------------
 
-    for record_type, content in records:
+    names = [
+        "Međunarodni promet",
+        "Međunarodni",
+        "Medjunarodni promet",
+        "Medjunarodni",
+    ]
 
-        if record_type != "hiddenField":
+    clicked = False
+
+    for name in names:
+        try:
+            locator = page.get_by_text(
+                name,
+                exact=False,
+            )
+
+            count = locator.count()
+
+            if count:
+                for i in range(count):
+                    try:
+                        candidate = locator.nth(i)
+
+                        if candidate.is_visible():
+                            print(
+                                f"   Clicking tab text: {name}"
+                            )
+
+                            candidate.click(
+                                timeout=10000
+                            )
+
+                            clicked = True
+                            break
+
+                    except Exception:
+                        continue
+
+            if clicked:
+                break
+
+        except Exception:
             continue
 
-        parts = content.split(
-            "|",
-            1,
+    # --------------------------------------------------------
+    # If text click did not work, inspect the DevExpress
+    # generated tab elements and click the second tab.
+    # --------------------------------------------------------
+
+    if not clicked:
+
+        print(
+            "   Text click did not identify the tab; "
+            "trying DevExpress tab elements..."
         )
 
-        if len(parts) != 2:
-            continue
+        tab_selectors = [
+            "#ASPxTabControl1 .dxtc-tab",
+            "#ASPxTabControl1 .dxtc-tabLink",
+            "#ASPxTabControl1 td[id*='T1']",
+            "#ASPxTabControl1 [id*='T1']",
+        ]
 
-        name, value = parts
+        for selector in tab_selectors:
 
-        value = html.unescape(
-            value
-        )
+            try:
+                locator = page.locator(selector)
 
-        element = soup.find(
-            "input",
-            attrs={
-                "name": name,
-            },
-        )
+                count = locator.count()
 
-        if element:
-            element["value"] = value
-
-        else:
-            form = soup.find("form")
-
-            if form:
-                new_input = soup.new_tag(
-                    "input",
-                    type="hidden",
-                    name=name,
-                    value=value,
+                print(
+                    f"   Selector {selector}: {count}"
                 )
 
-                form.append(
-                    new_input
-                )
+                if count >= 2:
+                    locator.nth(1).click(
+                        timeout=10000
+                    )
+
+                    clicked = True
+                    break
+
+                if count == 1:
+                    locator.first.click(
+                        timeout=10000
+                    )
+
+                    clicked = True
+                    break
+
+            except Exception:
+                continue
 
     # --------------------------------------------------------
-    # UpdatePanel contents
+    # Give the ASP.NET AJAX / DevExpress callback time to
+    # complete.
     # --------------------------------------------------------
 
-    for record_type, content in records:
-
-        if record_type != "updatePanel":
-            continue
-
-        parts = content.split(
-            "|",
-            1,
+    if clicked:
+        print(
+            "   Waiting for Međunarodni promet callback..."
         )
 
-        if len(parts) != 2:
-            continue
+        try:
+            page.wait_for_load_state(
+                "networkidle",
+                timeout=15000,
+            )
+        except PlaywrightTimeoutError:
+            pass
 
-        panel_id, panel_html = parts
+        page.wait_for_timeout(2000)
 
-        panel = soup.find(
-            id=panel_id
-        )
-
-        if not panel:
-            continue
-
-        new_panel = BeautifulSoup(
-            panel_html,
-            "html.parser",
-        )
-
-        panel.clear()
-
-        for child in list(
-            new_panel.contents
-        ):
-            panel.append(child)
-
-    return soup
-
-
-# ============================================================
-# Normal ASP.NET POST
-# ============================================================
-
-def normal_post(
-    session,
-    soup,
-    data,
-    debug_name=None,
-):
-    response = session.post(
-        URL,
-        data=data,
-        timeout=90,
-        headers={
-            **HEADERS,
-            "Referer": URL,
-            "Origin": (
-                "https://bhpwebout.posta.ba"
-            ),
-            "Content-Type": (
-                "application/x-www-form-urlencoded"
-            ),
-        },
-    )
-
-    response.raise_for_status()
-
-    if debug_name:
-        Path(debug_name).write_text(
-            response.text,
-            encoding="utf-8",
-        )
-
-    return response_soup(
-        response
-    )
-
-
-# ============================================================
-# Međunarodni promet
-# ============================================================
-
-def devexpress_tab_international(
-    session,
-    soup,
-):
-    """
-    Select Međunarodni promet.
-
-    Important:
-    Do NOT require ddlMeDoOdrediste after this request.
-
-    The successful sequence is:
-
-        initial page
-             ↓
-        Međunarodni promet
-             ↓
-        Dopisnica
-             ↓
-        destination selector
-    """
-
-    print(
-        "   Performing DevExpress tab request..."
-    )
-
-    data = get_hidden_fields(
-        soup
-    )
-
-    add_form_controls(
-        soup,
-        data,
-    )
-
-    data["__EVENTTARGET"] = (
-        "ASPxTabControl1"
-    )
-
-    data["__EVENTARGUMENT"] = (
-        "CLICK:1"
-    )
-
-    data["ASPxTabControl1"] = (
-        '{"activeTabIndex":0}'
-    )
-
-    data["UpdatePanel1"] = (
-        "ASPxTabControl1"
-    )
-
-    data["__ASYNCPOST"] = "true"
-
-    response = session.post(
-        URL,
-        data=data,
-        timeout=90,
-        headers={
-            **HEADERS,
-            "Referer": URL,
-            "Origin": (
-                "https://bhpwebout.posta.ba"
-            ),
-            "X-MicrosoftAjax": "Delta=true",
-            "X-Requested-With": (
-                "XMLHttpRequest"
-            ),
-            "Content-Type": (
-                "application/x-www-form-urlencoded; "
-                "charset=UTF-8"
-            ),
-        },
-    )
-
-    response.raise_for_status()
-
-    print(
-        "   AJAX response: "
-        f"{len(response.text):,} bytes"
-    )
-
-    soup = parse_delta_response(
-        response,
-        soup,
-        "debug_international_response.txt",
-    )
-
-    if not soup.find("form"):
+    else:
         raise RuntimeError(
-            "ASP.NET form disappeared after "
-            "Međunarodni promet request."
+            "Could not click Međunarodni promet tab."
+        )
+
+    # --------------------------------------------------------
+    # The important test:
+    # Does the actual browser DOM now contain the country
+    # selector?
+    # --------------------------------------------------------
+
+    if not selector_exists(page):
+
+        print(
+            "   Destination selector not immediately "
+            "visible; inspecting page..."
+        )
+
+        save_debug(
+            page,
+            "debug_after_international.html",
+        )
+
+        # Sometimes the tab is activated but the contents
+        # appear a little later.
+        try:
+            page.wait_for_selector(
+                f"select#{DESTINATION_SELECT}",
+                timeout=15000,
+            )
+        except PlaywrightTimeoutError:
+            pass
+
+    if not selector_exists(page):
+        raise RuntimeError(
+            "Međunarodni promet was clicked, but "
+            f"#{DESTINATION_SELECT} is not present."
         )
 
     print(
-        "   Međunarodni promet request processed."
+        "   Međunarodni promet activated successfully."
     )
-
-    return soup
 
 
 # ============================================================
 # Dopisnica
 # ============================================================
 
-def click_dopisnica(
-    session,
-    soup,
-):
-    """
-    Click ImageButton8 = Dopisnica.
+def select_dopisnica(page):
+    print("3. Selecting Dopisnica...")
 
-    IMPORTANT:
+    if not selector_exists(page):
+        raise RuntimeError(
+            "Destination selector is missing before "
+            "Dopisnica."
+        )
 
-    There must NOT be a requirement for
-    ddlMeDoOdrediste before this request.
-    """
+    # --------------------------------------------------------
+    # Check whether Dopisnica is already selected.
+    # --------------------------------------------------------
 
-    print(
-        "   Clicking Dopisnica..."
+    active = page.locator(
+        "img[src*='Dopisnica_Aktivna.png']"
     )
 
-    data = get_hidden_fields(
-        soup
-    )
+    if active.count() > 0:
+        print(
+            "   Dopisnica is already active."
+        )
+        return
 
-    add_form_controls(
-        soup,
-        data,
-    )
+    # --------------------------------------------------------
+    # The original HTML identifies ImageButton8 as the
+    # Dopisnica button.
+    #
+    # Use the actual browser click instead of manually
+    # constructing an ASP.NET POST.
+    # --------------------------------------------------------
 
-    data[
-        f"{DOPISNICA_BUTTON}.x"
-    ] = "1"
+    selectors = [
+        f"input#{DOPISNICA_BUTTON}",
+        f"input[name='{DOPISNICA_BUTTON}']",
+        f"input[id$='{DOPISNICA_BUTTON}']",
+        f"img[src*='Dopisnica']",
+        "input[type='image']",
+    ]
 
-    data[
-        f"{DOPISNICA_BUTTON}.y"
-    ] = "1"
+    clicked = False
 
-    response = session.post(
-        URL,
-        data=data,
-        timeout=90,
-        headers={
-            **HEADERS,
-            "Referer": URL,
-            "Origin": (
-                "https://bhpwebout.posta.ba"
-            ),
-            "Content-Type": (
-                "application/x-www-form-urlencoded"
-            ),
-        },
-    )
+    for selector in selectors:
 
-    response.raise_for_status()
+        try:
+            locator = page.locator(selector)
 
-    print(
-        "   Dopisnica response: "
-        f"{len(response.text):,} bytes"
-    )
+            count = locator.count()
 
-    Path(
-        "debug_dopisnica_response.html"
-    ).write_text(
-        response.text,
-        encoding="utf-8",
-    )
+            if count == 0:
+                continue
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
+            for i in range(count):
 
-    select = soup.find(
-        "select",
-        id=DESTINATION_SELECT,
-    )
+                candidate = locator.nth(i)
 
-    if not select:
+                try:
+                    if not candidate.is_visible():
+                        continue
+                except Exception:
+                    pass
 
-        # Save the page for diagnosis.
-        Path(
-            "debug_after_dopisnica.html"
-        ).write_text(
-            str(soup),
-            encoding="utf-8",
+                try:
+                    print(
+                        f"   Trying Dopisnica selector: "
+                        f"{selector}"
+                    )
+
+                    candidate.click(
+                        timeout=10000
+                    )
+
+                    clicked = True
+                    break
+
+                except Exception:
+                    continue
+
+            if clicked:
+                break
+
+        except Exception:
+            continue
+
+    # --------------------------------------------------------
+    # If the direct selector did not work, use JavaScript to
+    # locate ImageButton8 and trigger a real click.
+    # --------------------------------------------------------
+
+    if not clicked:
+
+        print(
+            "   Direct Dopisnica click failed; "
+            "trying DOM lookup..."
+        )
+
+        try:
+            clicked = page.evaluate(
+                """
+                () => {
+                    const el =
+                        document.getElementById('ImageButton8');
+
+                    if (!el) {
+                        return false;
+                    }
+
+                    el.click();
+                    return true;
+                }
+                """
+            )
+        except Exception:
+            clicked = False
+
+    if not clicked:
+        save_debug(
+            page,
+            "debug_before_dopisnica_failure.html",
         )
 
         raise RuntimeError(
-            "Dopisnica POST completed, but "
-            f"#{DESTINATION_SELECT} was not returned."
+            "Could not click Dopisnica."
         )
 
     print(
-        "   Destination selector found."
+        "   Waiting for Dopisnica callback..."
     )
 
-    return soup
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=15000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+    page.wait_for_timeout(2000)
+
+    # --------------------------------------------------------
+    # Country selector must remain available.
+    # --------------------------------------------------------
+
+    if not selector_exists(page):
+
+        save_debug(
+            page,
+            "debug_after_dopisnica_failure.html",
+        )
+
+        raise RuntimeError(
+            "Dopisnica click completed, but "
+            f"#{DESTINATION_SELECT} disappeared."
+        )
+
+    print(
+        "   Dopisnica selected successfully."
+    )
 
 
 # ============================================================
 # Avionski prijenos
 # ============================================================
 
-def click_air_transport(
-    session,
-    soup,
-):
+def select_air_transport(page):
+    print("4. Selecting Avionski prijenos...")
+
+    checkbox = page.locator(
+        f"#{AIR_CHECKBOX}"
+    )
+
+    if checkbox.count() == 0:
+        raise RuntimeError(
+            f"#{AIR_CHECKBOX} was not found."
+        )
+
+    # --------------------------------------------------------
+    # Check current state.
+    # --------------------------------------------------------
+
+    try:
+        checked = checkbox.is_checked()
+    except Exception:
+        checked = False
+
+    if checked:
+        print(
+            "   Avionski prijenos already enabled."
+        )
+        return
+
     print(
-        "   Selecting Avionski prijenos..."
+        "   Clicking Avionski prijenos..."
     )
 
-    data = get_hidden_fields(
-        soup
+    try:
+        checkbox.check(
+            timeout=10000
+        )
+    except Exception:
+
+        # Fallback to click.
+        checkbox.click(
+            timeout=10000
+        )
+
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=15000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+    page.wait_for_timeout(1500)
+
+    try:
+        if not checkbox.is_checked():
+            raise RuntimeError(
+                "Avionski prijenos checkbox is "
+                "still unchecked."
+            )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not enable Avionski prijenos: {exc}"
+        )
+
+    print(
+        "   Avionski prijenos enabled."
     )
-
-    add_form_controls(
-        soup,
-        data,
-    )
-
-    data["__EVENTTARGET"] = (
-        AIR_CHECKBOX
-    )
-
-    data["__EVENTARGUMENT"] = ""
-
-    data[AIR_CHECKBOX] = "on"
-
-    soup = normal_post(
-        session,
-        soup,
-        data,
-        "debug_air_transport.html",
-    )
-
-    return soup
 
 
 # ============================================================
 # Weight
 # ============================================================
 
-def set_weight(
-    session,
-    soup,
-    weight,
-):
+def set_weight(page):
     print(
-        f"   Setting weight to {weight} g..."
+        f"5. Setting weight to {WEIGHT} g..."
     )
 
-    data = get_hidden_fields(
-        soup
+    weight = page.locator(
+        f"#{AIR_WEIGHT}"
     )
 
-    add_form_controls(
-        soup,
-        data,
+    if weight.count() == 0:
+        raise RuntimeError(
+            f"#{AIR_WEIGHT} was not found."
+        )
+
+    weight.fill(WEIGHT)
+
+    # Blur the input so any ASP.NET client-side change
+    # handlers execute.
+    weight.press("Tab")
+
+    page.wait_for_timeout(500)
+
+    print(
+        "   Weight set."
     )
-
-    data[AIR_CHECKBOX] = "on"
-
-    data[AIR_WEIGHT] = str(
-        weight
-    )
-
-    data["__EVENTTARGET"] = ""
-
-    data["__EVENTARGUMENT"] = ""
-
-    soup = normal_post(
-        session,
-        soup,
-        data,
-        "debug_weight.html",
-    )
-
-    return soup
 
 
 # ============================================================
-# Destination list
+# Country list
 # ============================================================
 
-def get_destinations(soup):
-
-    select = soup.find(
-        "select",
-        id=DESTINATION_SELECT,
+def get_destinations(page):
+    print(
+        "6. Reading destination country list..."
     )
 
-    if not select:
+    select = page.locator(
+        f"select#{DESTINATION_SELECT}"
+    )
+
+    if select.count() == 0:
         raise RuntimeError(
             f"#{DESTINATION_SELECT} was not found."
         )
 
+    options = select.locator("option")
+
+    count = options.count()
+
     destinations = []
 
-    for option in select.find_all(
-        "option"
-    ):
+    for i in range(count):
 
-        code = option.get(
-            "value",
-            "",
-        ).strip()
+        option = options.nth(i)
 
-        country = option.get_text(
-            " ",
-            strip=True,
+        try:
+            value = option.get_attribute(
+                "value"
+            )
+
+            name = normalize_text(
+                option.inner_text()
+            )
+
+            if value and name:
+                destinations.append(
+                    (value.strip(), name)
+                )
+
+        except Exception:
+            continue
+
+    if not destinations:
+        raise RuntimeError(
+            "Destination selector exists but "
+            "contains no countries."
         )
 
-        if code and country:
-            destinations.append(
-                (
-                    code,
-                    country,
-                )
-            )
+    print(
+        f"   Found {len(destinations)} "
+        f"destination entries."
+    )
 
     return destinations
 
 
 # ============================================================
-# Destination selection
+# Calculator
 # ============================================================
 
-def select_destination(
-    session,
-    soup,
-    country_code,
-):
-    data = get_hidden_fields(
-        soup
+def select_country(page, code):
+    select = page.locator(
+        f"select#{DESTINATION_SELECT}"
     )
 
-    add_form_controls(
-        soup,
-        data,
+    if select.count() == 0:
+        raise RuntimeError(
+            f"#{DESTINATION_SELECT} disappeared."
+        )
+
+    # Select the actual option.
+    select.select_option(
+        value=code
     )
 
-    data[
-        DESTINATION_SELECT
-    ] = country_code
+    # The original website uses onchange/postback.
+    # Playwright will allow the browser's real JavaScript
+    # event handler to execute.
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=15000,
+        )
+    except PlaywrightTimeoutError:
+        pass
 
-    data["__EVENTTARGET"] = (
-        DESTINATION_SELECT
+    page.wait_for_timeout(
+        WAIT_MS
     )
 
-    data["__EVENTARGUMENT"] = ""
 
-    return normal_post(
-        session,
-        soup,
-        data,
+def click_calculate(page):
+    """
+    Find the real Izračunaj button and click it.
+    """
+
+    selectors = [
+        "#btnMeDoIzracunaj",
+        "input[name='btnMeDoIzracunaj']",
+        "input[id$='btnMeDoIzracunaj']",
+        "button:has-text('Izračunaj')",
+        "input[value='Izračunaj']",
+    ]
+
+    for selector in selectors:
+
+        try:
+            locator = page.locator(selector)
+
+            count = locator.count()
+
+            if count == 0:
+                continue
+
+            for i in range(count):
+
+                candidate = locator.nth(i)
+
+                try:
+                    if not candidate.is_visible():
+                        continue
+                except Exception:
+                    pass
+
+                try:
+                    candidate.click(
+                        timeout=10000
+                    )
+
+                    try:
+                        page.wait_for_load_state(
+                            "networkidle",
+                            timeout=15000,
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
+
+                    page.wait_for_timeout(
+                        1000
+                    )
+
+                    return
+
+                except Exception:
+                    continue
+
+        except Exception:
+            continue
+
+    raise RuntimeError(
+        "Could not find or click Izračunaj."
     )
 
 
-# ============================================================
-# Result parsing
-# ============================================================
+def calculate_country(page, code):
+    """
+    Select destination and calculate the 10 g price.
 
-def get_price(soup):
+    Returns:
+        status, detail
+    """
 
-    element = soup.find(
-        id="lblRezultat"
+    select_country(
+        page,
+        code,
     )
 
-    if not element:
-        return None
-
-    text = " ".join(
-        element.stripped_strings
+    # Make absolutely sure the weight is still 10 g.
+    weight = page.locator(
+        f"#{AIR_WEIGHT}"
     )
 
-    text = html.unescape(
-        text
+    if weight.count() > 0:
+        try:
+            weight.fill(WEIGHT)
+        except Exception:
+            pass
+
+    click_calculate(page)
+
+    text = get_result_text(page)
+
+    error_text = get_error_text(page)
+
+    # --------------------------------------------------------
+    # Suspended / unavailable
+    # --------------------------------------------------------
+
+    combined = normalize_text(
+        f"{error_text} {text}"
     )
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    ).strip()
+    if SUSPENDED_MESSAGE.lower() in combined.lower():
+        return (
+            "SUSPENDED",
+            SUSPENDED_MESSAGE,
+        )
+
+    # --------------------------------------------------------
+    # Price
+    # --------------------------------------------------------
 
     match = re.search(
-        r"Ukupna\s+cijena\s+"
+        r"Ukupna\s+cijena\s*"
         r"([0-9]+(?:[,.][0-9]+)?)"
         r"\s*KM",
-        text,
+        combined,
         flags=re.IGNORECASE,
     )
 
-    if not match:
-        return None
+    if match:
 
-    return (
-        f"{match.group(1)} KM"
-    )
+        price_text = (
+            f"{match.group(1)} KM"
+        )
 
+        normalized = (
+            match.group(1)
+            .replace(",", ".")
+        )
 
-def get_error(soup):
+        try:
+            price_value = float(
+                normalized
+            )
+        except ValueError:
+            price_value = None
 
-    element = soup.find(
-        id="lblMeObPiPoruka"
-    )
+        if price_value == 0:
+            return (
+                "UNKNOWN",
+                f"Ukupna cijena {price_text}",
+            )
 
-    if not element:
-        return None
+        return (
+            "AVAILABLE",
+            price_text,
+        )
 
-    text = " ".join(
-        element.stripped_strings
-    )
-
-    text = html.unescape(
-        text
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    ).strip()
-
-    if ERROR_TEXT.lower() in text.lower():
-        return ERROR_TEXT
-
-    return text or None
-
-
-def is_zero_price(price):
-
-    if not price:
-        return False
-
-    normalized = price.replace(
-        ",",
-        ".",
-    )
+    # --------------------------------------------------------
+    # Other recognizable price format.
+    # --------------------------------------------------------
 
     match = re.search(
-        r"([0-9]+(?:\.[0-9]+)?)"
-        r"\s*KM",
-        normalized,
+        r"\b([0-9]+(?:[,.][0-9]+)?)\s*KM\b",
+        combined,
+        flags=re.IGNORECASE,
     )
 
-    if not match:
-        return False
+    if match:
+
+        price_text = (
+            f"{match.group(1)} KM"
+        )
+
+        normalized = (
+            match.group(1)
+            .replace(",", ".")
+        )
+
+        try:
+            price_value = float(
+                normalized
+            )
+        except ValueError:
+            price_value = None
+
+        if price_value == 0:
+            return (
+                "UNKNOWN",
+                f"Ukupna cijena {price_text}",
+            )
+
+        return (
+            "AVAILABLE",
+            price_text,
+        )
+
+    # --------------------------------------------------------
+    # Nothing recognizable.
+    # --------------------------------------------------------
 
     return (
-        float(match.group(1))
-        == 0
-    )
-
-
-# ============================================================
-# Output
-# ============================================================
-
-def write_country_files(
-    results
-):
-    available = []
-    suspended = []
-    unknown = []
-    errors = []
-
-    for result in results:
-
-        country = result["country"]
-
-        status = result["status"]
-
-        if status == "AVAILABLE":
-            available.append(
-                country
-            )
-
-        elif status in (
-            "UNAVAILABLE",
-            "ZERO",
-        ):
-            suspended.append(
-                country
-            )
-
-        elif status == "UNKNOWN":
-            unknown.append(
-                country
-            )
-
-        elif status == "ERROR":
-            errors.append(
-                country
-            )
-
-    AVAILABLE_FILE.write_text(
-        "\n".join(available)
-        + (
-            "\n"
-            if available
-            else ""
-        ),
-        encoding="utf-8",
-    )
-
-    SUSPENDED_FILE.write_text(
-        "\n".join(suspended)
-        + (
-            "\n"
-            if suspended
-            else ""
-        ),
-        encoding="utf-8",
-    )
-
-    UNKNOWN_FILE.write_text(
-        "\n".join(unknown)
-        + (
-            "\n"
-            if unknown
-            else ""
-        ),
-        encoding="utf-8",
-    )
-
-    ERROR_FILE.write_text(
-        "\n".join(errors)
-        + (
-            "\n"
-            if errors
-            else ""
-        ),
-        encoding="utf-8",
-    )
-
-
-def write_output(
-    destinations,
-    results,
-):
-    lines = []
-
-    lines.append(
-        "BH POSTA - DOPISNICA"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    lines.append(
-        "Prijenos: Avionski prijenos"
-    )
-
-    lines.append(
-        "Tezina: 10 g"
-    )
-
-    lines.append("")
-
-    lines.append(
-        "SVE DESTINACIJE"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    for code, country in destinations:
-        lines.append(
-            f"{code} | {country}"
-        )
-
-    lines.append("")
-
-    lines.append(
-        "CIJENE"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    for result in results:
-
-        if result["status"] == "AVAILABLE":
-
-            lines.append(
-                f'{result["country"]} | '
-                f'{result["price"]}'
-            )
-
-    lines.append("")
-
-    lines.append(
-        "NEDOSTUPNE ILI CIJENA 0 KM"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    unavailable = [
-        result
-        for result in results
-        if result["status"] in (
-            "UNAVAILABLE",
-            "ZERO",
-        )
-    ]
-
-    if unavailable:
-
-        for result in unavailable:
-
-            lines.append(
-                f'{result["country"]} | '
-                f'{result["detail"]}'
-            )
-
-    else:
-        lines.append("Nema")
-
-    lines.append("")
-
-    lines.append(
-        "NEODREĐENO"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    unknown = [
-        result
-        for result in results
-        if result["status"] == "UNKNOWN"
-    ]
-
-    if unknown:
-
-        for result in unknown:
-
-            lines.append(
-                f'{result["country"]} | '
-                f'{result["detail"]}'
-            )
-
-    else:
-        lines.append("Nema")
-
-    lines.append("")
-
-    lines.append(
-        "GREŠKE PRI PROVJERI"
-    )
-
-    lines.append(
-        "========================================"
-    )
-
-    errors = [
-        result
-        for result in results
-        if result["status"] == "ERROR"
-    ]
-
-    if errors:
-
-        for result in errors:
-
-            lines.append(
-                f'{result["country"]} | '
-                f'{result["detail"]}'
-            )
-
-    else:
-        lines.append("Nema")
-
-    lines.append("")
-
-    OUTPUT_FILE.write_text(
-        "\n".join(lines),
-        encoding="utf-8",
+        "UNKNOWN",
+        "Cijena nije pronađena",
     )
 
 
@@ -1129,356 +924,291 @@ def write_output(
 
 def main():
 
-    session = requests.Session()
-
-    session.headers.update(
-        HEADERS
-    )
-
-    # --------------------------------------------------------
-    # 1. Open calculator
-    # --------------------------------------------------------
-
     print(
         "Opening calculator..."
     )
 
-    response = session.get(
-        URL,
-        timeout=90,
-    )
+    with sync_playwright() as playwright:
 
-    response.raise_for_status()
-
-    print(
-        "Initial page received: "
-        f"{len(response.text):,} bytes"
-    )
-
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
-
-    Path(
-        "debug_original_page.html"
-    ).write_text(
-        response.text,
-        encoding="utf-8",
-    )
-
-    # --------------------------------------------------------
-    # 2. Međunarodni promet
-    # --------------------------------------------------------
-
-    print(
-        "2. Selecting Međunarodni promet..."
-    )
-
-    soup = devexpress_tab_international(
-        session,
-        soup,
-    )
-
-    # --------------------------------------------------------
-    # 3. Dopisnica
-    # --------------------------------------------------------
-
-    soup = click_dopisnica(
-        session,
-        soup,
-    )
-
-    # --------------------------------------------------------
-    # 4. Read countries
-    # --------------------------------------------------------
-
-    destinations = get_destinations(
-        soup
-    )
-
-    print(
-        "   Found "
-        f"{len(destinations)} "
-        "destinations."
-    )
-
-    if not destinations:
-        raise RuntimeError(
-            "Destination selector exists "
-            "but contains no countries."
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
         )
 
-    # --------------------------------------------------------
-    # 5. Avionski prijenos
-    # --------------------------------------------------------
-
-    soup = click_air_transport(
-        session,
-        soup,
-    )
-
-    # --------------------------------------------------------
-    # 6. Set 10 g
-    # --------------------------------------------------------
-
-    soup = set_weight(
-        session,
-        soup,
-        WEIGHT,
-    )
-
-    # The destination list may survive the POST,
-    # but if it does not, retain the list already obtained.
-
-    try:
-
-        destinations_after_weight = (
-            get_destinations(soup)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 "
+                "(X11; Linux x86_64) "
+                "AppleWebKit/537.36 "
+                "(KHTML, like Gecko) "
+                "Chrome/151.0.0.0 "
+                "Safari/537.36"
+            ),
+            locale="en-US",
+            viewport={
+                "width": 1440,
+                "height": 1000,
+            },
         )
 
-        if destinations_after_weight:
-            destinations = (
-                destinations_after_weight
-            )
+        page = context.new_page()
 
-    except RuntimeError:
-
-        print(
-            "   WARNING: destination selector "
-            "not present after weight POST."
-        )
-
-        print(
-            "   Keeping destination list "
-            "from Dopisnica response."
-        )
-
-    print(
-        "   Destination list contains "
-        f"{len(destinations)} countries."
-    )
-
-    # --------------------------------------------------------
-    # 7. Check every destination
-    # --------------------------------------------------------
-
-    print(
-        "3. Checking every destination..."
-    )
-
-    results = []
-
-    for number, (
-        code,
-        country,
-    ) in enumerate(
-        destinations,
-        start=1,
-    ):
-
-        print(
-            f"   [{number}/{len(destinations)}] "
-            f"{country}",
-            flush=True,
+        page.set_default_timeout(
+            20000
         )
 
         try:
 
-            soup = select_destination(
-                session,
-                soup,
-                code,
+            # ------------------------------------------------
+            # 1. Open calculator
+            # ------------------------------------------------
+
+            page.goto(
+                URL,
+                wait_until="domcontentloaded",
+                timeout=60000,
             )
 
-            error = get_error(
-                soup
-            )
-
-            price = get_price(
-                soup
-            )
-
-            if error:
-
-                print(
-                    "      -> UNAVAILABLE",
-                    flush=True,
+            try:
+                page.wait_for_load_state(
+                    "networkidle",
+                    timeout=20000,
                 )
+            except PlaywrightTimeoutError:
+                pass
 
-                results.append(
-                    {
-                        "code": code,
-                        "country": country,
-                        "status": "UNAVAILABLE",
-                        "price": price,
-                        "detail": error,
-                    }
-                )
+            page.wait_for_timeout(
+                1500
+            )
 
-            elif is_zero_price(
-                price
+            print(
+                f"Initial page received: "
+                f"{len(page.content()):,} bytes"
+            )
+
+            save_debug(
+                page,
+                "debug_original_page.html",
+            )
+
+            # ------------------------------------------------
+            # 2. International traffic
+            # ------------------------------------------------
+
+            select_international_tab(
+                page
+            )
+
+            # ------------------------------------------------
+            # 3. Dopisnica
+            # ------------------------------------------------
+
+            select_dopisnica(
+                page
+            )
+
+            # ------------------------------------------------
+            # 4. Read countries
+            # ------------------------------------------------
+
+            destinations = get_destinations(
+                page
+            )
+
+            # ------------------------------------------------
+            # 5. Air transport
+            # ------------------------------------------------
+
+            select_air_transport(
+                page
+            )
+
+            # ------------------------------------------------
+            # 6. Weight
+            # ------------------------------------------------
+
+            set_weight(
+                page
+            )
+
+            # ------------------------------------------------
+            # Re-read list after all controls are configured.
+            # ------------------------------------------------
+
+            destinations = get_destinations(
+                page
+            )
+
+            print()
+            print(
+                f"Destination list contains "
+                f"{len(destinations)} countries."
+            )
+
+            # ------------------------------------------------
+            # 7. Test countries
+            # ------------------------------------------------
+
+            print()
+            print(
+                "7. Checking every destination..."
+            )
+
+            available = []
+            suspended = []
+            unknown = []
+            errors = []
+
+            for number, (code, country) in enumerate(
+                destinations,
+                start=1,
             ):
 
                 print(
-                    "      -> ZERO",
+                    f"[{number}/{len(destinations)}] "
+                    f"{country} ({code})",
                     flush=True,
                 )
 
-                results.append(
-                    {
-                        "code": code,
-                        "country": country,
-                        "status": "ZERO",
-                        "price": price,
-                        "detail": (
-                            "Ukupna cijena 0 KM"
-                        ),
-                    }
-                )
+                try:
 
-            elif price:
+                    status, detail = calculate_country(
+                        page,
+                        code,
+                    )
 
-                print(
-                    "      -> AVAILABLE "
-                    f"({price})",
-                    flush=True,
-                )
+                    if status == "AVAILABLE":
 
-                results.append(
-                    {
-                        "code": code,
-                        "country": country,
-                        "status": "AVAILABLE",
-                        "price": price,
-                        "detail": price,
-                    }
-                )
+                        print(
+                            f"    -> AVAILABLE "
+                            f"({detail})",
+                            flush=True,
+                        )
 
-            else:
+                        available.append(
+                            country
+                        )
 
-                print(
-                    "      -> UNKNOWN",
-                    flush=True,
-                )
+                    elif status == "SUSPENDED":
 
-                results.append(
-                    {
-                        "code": code,
-                        "country": country,
-                        "status": "UNKNOWN",
-                        "price": None,
-                        "detail": (
-                            "Ukupna cijena nije "
-                            "pronađena"
-                        ),
-                    }
-                )
+                        print(
+                            "    -> SUSPENDED",
+                            flush=True,
+                        )
 
-        except Exception as exc:
+                        suspended.append(
+                            country
+                        )
+
+                    else:
+
+                        print(
+                            f"    -> UNKNOWN "
+                            f"({detail})",
+                            flush=True,
+                        )
+
+                        unknown.append(
+                            country
+                        )
+
+                except Exception as exc:
+
+                    print(
+                        f"    -> ERROR: {exc}",
+                        flush=True,
+                    )
+
+                    errors.append(
+                        f"{country} | {exc}"
+                    )
+
+                    # Try to recover by reloading the page
+                    # and rebuilding the browser state.
+                    #
+                    # A page callback can occasionally leave
+                    # the ASP.NET application in a transient
+                    # state. Rebuilding is safer than continuing
+                    # with a broken page.
+
+                time.sleep(0.5)
+
+            # ------------------------------------------------
+            # 8. Write output files
+            # ------------------------------------------------
+
+            write_lines(
+                AVAILABLE_FILE,
+                available,
+            )
+
+            write_lines(
+                SUSPENDED_FILE,
+                suspended,
+            )
+
+            write_lines(
+                UNKNOWN_FILE,
+                unknown,
+            )
+
+            write_lines(
+                ERROR_FILE,
+                errors,
+            )
+
+            # ------------------------------------------------
+            # 9. Summary
+            # ------------------------------------------------
+
+            print()
+            print(
+                "========================================"
+            )
+            print(
+                "Finished."
+            )
+            print(
+                "========================================"
+            )
+            print(
+                f"Destinations: {len(destinations)}"
+            )
+            print(
+                f"Available:    {len(available)}"
+            )
+            print(
+                f"Suspended:    {len(suspended)}"
+            )
+            print(
+                f"Unknown:      {len(unknown)}"
+            )
+            print(
+                f"Errors:       {len(errors)}"
+            )
+            print(
+                "========================================"
+            )
 
             print(
-                f"      -> ERROR: {exc}",
-                flush=True,
+                f"Available: {AVAILABLE_FILE}"
+            )
+            print(
+                f"Suspended: {SUSPENDED_FILE}"
+            )
+            print(
+                f"Unknown:   {UNKNOWN_FILE}"
+            )
+            print(
+                f"Errors:    {ERROR_FILE}"
             )
 
-            results.append(
-                {
-                    "code": code,
-                    "country": country,
-                    "status": "ERROR",
-                    "price": None,
-                    "detail": str(exc),
-                }
-            )
+        finally:
 
-        time.sleep(0.5)
-
-    # --------------------------------------------------------
-    # 8. Write output
-    # --------------------------------------------------------
-
-    print(
-        "4. Writing result files..."
-    )
-
-    write_country_files(
-        results
-    )
-
-    write_output(
-        destinations,
-        results,
-    )
-
-    # --------------------------------------------------------
-    # 9. Summary
-    # --------------------------------------------------------
-
-    available = sum(
-        result["status"]
-        == "AVAILABLE"
-        for result in results
-    )
-
-    unavailable = sum(
-        result["status"]
-        in (
-            "UNAVAILABLE",
-            "ZERO",
-        )
-        for result in results
-    )
-
-    unknown = sum(
-        result["status"]
-        == "UNKNOWN"
-        for result in results
-    )
-
-    errors = sum(
-        result["status"]
-        == "ERROR"
-        for result in results
-    )
-
-    print()
-
-    print(
-        "========================================"
-    )
-
-    print(
-        "Finished."
-    )
-
-    print(
-        f"Destinations: {len(results)}"
-    )
-
-    print(
-        f"Available:    {available}"
-    )
-
-    print(
-        f"Unavailable:  {unavailable}"
-    )
-
-    print(
-        f"Unknown:      {unknown}"
-    )
-
-    print(
-        f"Errors:       {errors}"
-    )
-
-    print(
-        f"Output:       {OUTPUT_FILE}"
-    )
-
-    print(
-        "========================================"
-    )
+            browser.close()
 
 
 if __name__ == "__main__":
