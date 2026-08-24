@@ -1,0 +1,294 @@
+========================================
+BH POSTA INTERNATIONAL DOPISNICA
+========================================
+
+========================================
+AVAILABLE COUNTRIES
+========================================
+
+Albanija
+Alžir
+Angola
+Argentina
+Armenija
+Australija
+Austrija
+Azerbejdžan
+Bangladeš
+Belgija
+Belize
+Benin
+Bjelorusija
+Bocvana
+Bolivija
+Brazil
+Brunei Daruselam
+Bugarska
+Burkina Faso
+Burundi
+Cad
+Centralnoafricka Republika
+Cile
+Crna Gora
+Češka Republika
+Danska
+Džibuti
+Egipat
+Eritreja
+Estonija
+ESVATINI (SVAZILEND)
+Filipini
+Finska
+Francuska
+Gabon
+Gambija
+Grcka
+Gruzija
+Gvajana
+Gvatemala
+Gvineja
+Gvineja Bisao
+Haiti
+Holandija
+Honduras
+Hong Kong, Kina
+Hrvatska
+Indija
+Indonezija
+Irska
+Island
+Italija
+Japan
+Južnoafricka Republika
+Kambodža
+Kamerun
+Kanada
+Kazahstan
+Kina
+Kipar
+Kirgistan
+Kolumbija
+Koreja (Dem.Rep.)
+Koreja (Rep.)
+Kosovo
+Kostarika
+Laos
+Latvija
+Liberija
+Libija
+Lihtenštajn
+Litvanija
+Luksemburg
+Madagaskar
+Mađarska
+Malavi
+Malezija
+Mali
+Malta
+Maroko
+Mauricijus
+Mauritanija
+Meksiko
+Mianmar
+Moldavija
+Mongolija
+Mozambik
+Namibija
+Nepal
+Niger
+Nigerija
+Nikaragva
+Norveška
+Novi Zeland
+Njemacka
+Obala Slonovace
+Pakistan
+Panama
+Papua Nova Gvineja
+Poljska
+Portugal
+Republika Sjeverna Makedonija
+Ruanda
+Rumunija
+Ruska Federacija
+SAD Sjedinjene Americke Države
+Salvador
+Senegal
+Siera Leone
+Singapur
+Slovacka
+Slovenija
+Srbija
+Surinam
+Španija
+Šri Lanka
+Švedska
+Švicarska
+Tadžikistan
+Tajland
+Tanzanija
+Togo
+Tunis
+Turkmenistan
+Turska
+Uganda
+Ukrajina
+Uzbekistan
+Velika Britanija
+Zambija
+Zimbabve
+
+========================================
+SUSPENDED COUNTRIES
+========================================
+
+Afganistan
+Amer.Djevičanska Ostrva
+AMERICAN SAMOA
+ANDORRA
+ANGUILLA
+Antiga i Barbuda
+Aruba
+ASCENSION
+Azori
+Bahami
+Bahrein
+Barbados
+BERMUDA
+BONAIRE
+Bosna i Hercegovina
+BRITISH INDIAN OCEAN TERRITORY
+Butan
+Cap-Vert (Zeleni-Rt)
+CHRISTMAS ISLAND
+COOK ISLANDS
+Dominika
+Dominikanska Republika
+Ekvador
+Ekvatorijalna Gvineja
+Etiopija
+FALKLAND ISLANDS (MALVINAS)
+Farski otoci
+Fidži
+FRENCH GUIANA
+Gana
+Gibraltar
+Grenada
+Grenland
+GUAM
+Guernsey
+Gvadelupe
+Holandski Antili
+Irak
+Iran
+Izrael
+Jamajka
+Jemen
+Jersey
+Jordan
+Južna Džodžija i Sandwich otoci
+Južni Sudan
+Kajmanski otoci
+Kanarski otoci
+Katar
+Kenija
+Kiribati
+Komori
+Kongo (Dem.Rep.)
+Kongo (Rep.)
+Kuba
+Kurakao
+Kuvajt
+Lesoto
+Liban
+Madeira
+Makao, Kina
+Maldivi
+MARSHALL ISLANDS
+MARTINIQUE
+MAYOTTE
+MICRONESIA, FEDERATED STATES OF
+Monako
+MONTSERRAT
+Nauru
+NIUE
+NORTHERN MARIANA ISLANDS
+Nova Kaledonija
+Oman
+Otok Man
+PALAU
+Paragvaj
+Peru
+PITCAIRN
+Polinezija
+Portoriko
+REUNION
+S. Martin
+SAINT PIERRE AND MIQUELON
+Samoa
+San Marino
+Saudijska Arabija
+Sejšeli
+Sirija
+Solomonski otoci
+Somalija
+Sudan
+Sveta Helena
+Sveta Lucija
+Sveti Vincent i Grenadine
+Sveti Barthelemy
+SVETI EUSTATIUS
+Sveti Kits i Nevis
+Sveti Tome i Principe
+TAHITI
+Tajvan - Kina
+Timor
+Tonga
+Trinidad i Tobago
+TRISTAN DA CUNHA
+TURKS AND CAICOS ISLANDS
+Tuvalu
+Ujedinjeni Arapski Emirati
+Urugvaj
+Vanuatu
+Vatikan
+Venecuela
+Vijetnam
+VIRGIN ISLANDS, BRITISH
+WALLIS AND FUTUNA
+
+========================================
+UNKNOWN COUNTRIES
+========================================
+
+Ascension
+BOUVET ISLAND
+Channel Islands
+COCOS (KEELING) ISLANDS
+FRENCH SOUTHERN TERRITORIES
+HEARD ISLAND AND MCDONALD ISLANDS
+Italijanske poste
+NORFOLK ISLAND
+Palestina
+RIA
+SVALBARD AND JAN MAYEN
+TOKELAU
+Tristan Da Cunha
+UNITED STATES MINOR OUTLYING ISLANDS
+VIRGIN ISLANDS, U.S.
+Walis i Futuna
+WESTERN SAHARA
+
+========================================
+ERROR COUNTRIES
+========================================
+
+
+========================================
+SUMMARY
+========================================
+
+Available: 131
+Suspended: 114
+Unknown:   17
+Errors:    0
