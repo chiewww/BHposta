@@ -14,10 +14,7 @@ URL = (
     "KalkulatorCijena_WEB_app/Bos/Default.aspx"
 )
 
-AVAILABLE_FILE = Path("available_countries.txt")
-SUSPENDED_FILE = Path("suspended_countries.txt")
-UNKNOWN_FILE = Path("unknown_countries.txt")
-ERROR_FILE = Path("error_countries.txt")
+OUTPUT_FILE = Path("bh_posta_countries.txt")
 
 DESTINATION_SELECT = "ddlMeDoOdrediste"
 
@@ -57,16 +54,85 @@ def normalize_text(text):
     return text.strip()
 
 
-def write_lines(path, values):
-    values = list(values)
+def write_output_file(
+    path,
+    available,
+    suspended,
+    unknown,
+    errors,
+):
+    """
+    Write all four result categories into one text file.
+    """
 
-    if values:
-        path.write_text(
-            "\n".join(values) + "\n",
-            encoding="utf-8",
-        )
-    else:
-        path.write_text("", encoding="utf-8")
+    lines = [
+        "========================================",
+        "BH POSTA INTERNATIONAL DOPISNICA",
+        "========================================",
+        "",
+        "========================================",
+        "AVAILABLE COUNTRIES",
+        "========================================",
+        "",
+    ]
+
+    lines.extend(available)
+
+    lines.extend(
+        [
+            "",
+            "========================================",
+            "SUSPENDED COUNTRIES",
+            "========================================",
+            "",
+        ]
+    )
+
+    lines.extend(suspended)
+
+    lines.extend(
+        [
+            "",
+            "========================================",
+            "UNKNOWN COUNTRIES",
+            "========================================",
+            "",
+        ]
+    )
+
+    lines.extend(unknown)
+
+    lines.extend(
+        [
+            "",
+            "========================================",
+            "ERROR COUNTRIES",
+            "========================================",
+            "",
+        ]
+    )
+
+    lines.extend(errors)
+
+    lines.extend(
+        [
+            "",
+            "========================================",
+            "SUMMARY",
+            "========================================",
+            "",
+            f"Available: {len(available)}",
+            f"Suspended: {len(suspended)}",
+            f"Unknown:   {len(unknown)}",
+            f"Errors:    {len(errors)}",
+            "",
+        ]
+    )
+
+    path.write_text(
+        "\n".join(lines),
+        encoding="utf-8",
+    )
 
 
 def save_debug(page, filename):
@@ -1121,26 +1187,14 @@ def main():
                 time.sleep(0.15)
 
             # =================================================
-            # 8. Write files
+            # 8. Write ONE combined output file
             # =================================================
 
-            write_lines(
-                AVAILABLE_FILE,
+            write_output_file(
+                OUTPUT_FILE,
                 available,
-            )
-
-            write_lines(
-                SUSPENDED_FILE,
                 suspended,
-            )
-
-            write_lines(
-                UNKNOWN_FILE,
                 unknown,
-            )
-
-            write_lines(
-                ERROR_FILE,
                 errors,
             )
 
@@ -1183,6 +1237,10 @@ def main():
             )
             print(
                 "========================================"
+            )
+
+            print(
+                f"Output:       {OUTPUT_FILE}"
             )
 
         finally:
