@@ -56,56 +56,23 @@ jobs:
           python monitor.py
 
       # ------------------------------------------------------
-      # Show generated files
+      # Show generated combined result file
       # ------------------------------------------------------
       - name: Show monitor results
         if: always()
         run: |
           echo "========================================"
-          echo "AVAILABLE COUNTRIES"
+          echo "BH POSTA COUNTRY RESULTS"
           echo "========================================"
 
-          if [ -f available_countries.txt ]; then
-            cat available_countries.txt
+          if [ -f bh_posta_countries.txt ]; then
+            cat bh_posta_countries.txt
           else
-            echo "available_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "SUSPENDED COUNTRIES"
-          echo "========================================"
-
-          if [ -f suspended_countries.txt ]; then
-            cat suspended_countries.txt
-          else
-            echo "suspended_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "UNKNOWN COUNTRIES"
-          echo "========================================"
-
-          if [ -f unknown_countries.txt ]; then
-            cat unknown_countries.txt
-          else
-            echo "unknown_countries.txt not found"
-          fi
-
-          echo
-          echo "========================================"
-          echo "ERROR COUNTRIES"
-          echo "========================================"
-
-          if [ -f error_countries.txt ]; then
-            cat error_countries.txt
-          else
-            echo "error_countries.txt not found"
+            echo "bh_posta_countries.txt not found"
           fi
 
       # ------------------------------------------------------
-      # Check whether monitored files changed
+      # Check whether combined output file changed
       # ------------------------------------------------------
       - name: Check for changes
         id: changes
@@ -119,34 +86,27 @@ jobs:
 
           changed=false
 
-          for file in \
-            available_countries.txt \
-            suspended_countries.txt \
-            unknown_countries.txt \
-            error_countries.txt
-          do
-            if [ -f "$file" ]; then
-              echo
-              echo "Found: $file"
+          if [ -f bh_posta_countries.txt ]; then
+            echo
+            echo "Found: bh_posta_countries.txt"
 
-              # Detect modifications to tracked files.
-              if ! git diff --quiet -- "$file"; then
-                echo "  -> modified"
-                changed=true
-              fi
-
-              # Detect newly created untracked files.
-              if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
-                echo "  -> tracked"
-              else
-                echo "  -> untracked"
-                changed=true
-              fi
-            else
-              echo
-              echo "Missing: $file"
+            # Detect modifications to tracked file.
+            if ! git diff --quiet -- bh_posta_countries.txt; then
+              echo "  -> modified"
+              changed=true
             fi
-          done
+
+            # Detect newly created untracked file.
+            if git ls-files --error-unmatch bh_posta_countries.txt >/dev/null 2>&1; then
+              echo "  -> tracked"
+            else
+              echo "  -> untracked"
+              changed=true
+            fi
+          else
+            echo
+            echo "Missing: bh_posta_countries.txt"
+          fi
 
           echo
           echo "========================================"
@@ -167,37 +127,29 @@ jobs:
             echo "GIT DIFF"
             echo "========================================"
 
-            git diff -- \
-              available_countries.txt \
-              suspended_countries.txt \
-              unknown_countries.txt \
-              error_countries.txt || true
+            git diff -- bh_posta_countries.txt || true
           else
             echo "No changes detected."
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       # ------------------------------------------------------
-      # Commit changed country lists
+      # Commit changed combined country list
       # ------------------------------------------------------
-      - name: Commit changed country lists
+      - name: Commit changed country list
         if: steps.changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add \
-            available_countries.txt \
-            suspended_countries.txt \
-            unknown_countries.txt \
-            error_countries.txt
+          git add bh_posta_countries.txt
 
           echo "========================================"
-          echo "FILES TO COMMIT"
+          echo "FILE TO COMMIT"
           echo "========================================"
 
           git status --short
 
-          git commit -m "Update international postcard country lists"
+          git commit -m "Update international postcard country list"
 
           git push
