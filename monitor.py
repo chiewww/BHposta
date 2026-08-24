@@ -9,10 +9,6 @@ from playwright.sync_api import (
 )
 
 
-# ============================================================
-# Configuration
-# ============================================================
-
 URL = (
     "https://bhpwebout.posta.ba/"
     "KalkulatorCijena_WEB_app/Bos/Default.aspx"
@@ -23,15 +19,11 @@ SUSPENDED_FILE = Path("suspended_countries.txt")
 UNKNOWN_FILE = Path("unknown_countries.txt")
 ERROR_FILE = Path("error_countries.txt")
 
-DEBUG_ORIGINAL = Path("debug_original_page.html")
-DEBUG_FAILURE = Path("debug_failure.html")
-
 DESTINATION_SELECT = "ddlMeDoOdrediste"
+
 AIR_CHECKBOX = "chbMeDoAvionski"
 AIR_WEIGHT = "tbxMeDoAvioTezina"
 
-# IMPORTANT:
-# This is Dopisnica, not Pismo.
 DOPISNICA_BUTTON = "ImageButton8"
 
 SUSPENDED_MESSAGE = (
@@ -40,24 +32,15 @@ SUSPENDED_MESSAGE = (
 
 WEIGHT = "10"
 
-# ------------------------------------------------------------
-# Performance settings
-# ------------------------------------------------------------
-
-# Do NOT use networkidle for every country.
+# Keep this reasonably small. The site can be slow, but waiting
+# several seconds after every country makes 262 countries take
+# a very long time.
 COUNTRY_WAIT_MS = 350
 
-# Maximum time to wait for a calculator result.
-RESULT_TIMEOUT_MS = 5000
-
-# Retry transient failures.
-MAX_COUNTRY_RETRIES = 2
-
-# Small pause between retries only.
-RETRY_DELAY_MS = 400
-
-# Overall safety limit.
-MAX_RUNTIME_SECONDS = 14 * 60
+# Maximum total runtime for the monitor itself.
+# GitHub Actions has a much larger job timeout, but this prevents
+# an accidental infinite loop.
+MAX_RUNTIME_SECONDS = 22 * 60
 
 
 # ============================================================
@@ -83,10 +66,7 @@ def write_lines(path, values):
             encoding="utf-8",
         )
     else:
-        path.write_text(
-            "",
-            encoding="utf-8",
-        )
+        path.write_text("", encoding="utf-8")
 
 
 def save_debug(page, filename):
@@ -102,26 +82,33 @@ def save_debug(page, filename):
         )
 
 
-def check_runtime(start_time):
-    elapsed = time.monotonic() - start_time
-
-    if elapsed >= MAX_RUNTIME_SECONDS:
-        raise RuntimeError(
-            "Maximum monitor runtime reached."
-        )
-
-
-# ============================================================
-# Page inspection
-# ============================================================
-
 def selector_exists(page):
-    return (
-        page.locator(
+    try:
+        return page.locator(
             f"select#{DESTINATION_SELECT}"
-        ).count()
-        > 0
+        ).count() > 0
+    except Exception:
+        return False
+
+
+def runtime_exceeded(start_time):
+    return (
+        time.monotonic() - start_time
+        >= MAX_RUNTIME_SECONDS
     )
+
+
+# ============================================================
+# Page text
+# ============================================================
+
+def get_visible_text(page):
+    try:
+        return normalize_text(
+            page.locator("body").inner_text()
+        )
+    except Exception:
+        return ""
 
 
 def get_result_text(page):
@@ -136,23 +123,22 @@ def get_result_text(page):
 
             if locator.count() > 0:
                 text = normalize_text(
-                    locator.first.inner_text(
-                        timeout=1000
-                    )
+                    locator.first.inner_text()
                 )
 
                 if text:
                     return text
-
         except Exception:
             pass
 
-    return ""
+    return get_visible_text(page)
 
 
 def get_error_text(page):
     selectors = [
+        "#lblMeDoPoruka",
         "#lblMeObPiPoruka",
+        "[id$='lblMeDoPoruka']",
         "[id$='lblMeObPiPoruka']",
     ]
 
@@ -162,38 +148,19 @@ def get_error_text(page):
 
             if locator.count() > 0:
                 text = normalize_text(
-                    locator.first.inner_text(
-                        timeout=1000
-                    )
+                    locator.first.inner_text()
                 )
 
                 if text:
                     return text
-
         except Exception:
             pass
 
     return ""
 
 
-def get_result_signature(page):
-    """
-    Get the current visible calculator result/message.
-
-    Used to detect when the ASP.NET callback has finished
-    without waiting for networkidle.
-    """
-
-    result = get_result_text(page)
-    error = get_error_text(page)
-
-    return normalize_text(
-        f"{result} {error}"
-    )
-
-
 # ============================================================
-# International tab
+# International traffic
 # ============================================================
 
 def select_international_tab(page):
@@ -224,11 +191,10 @@ def select_international_tab(page):
     clicked = False
 
     # --------------------------------------------------------
-    # Text click.
+    # Prefer an actual visible text element.
     # --------------------------------------------------------
 
     for name in names:
-
         try:
             locator = page.get_by_text(
                 name,
@@ -237,20 +203,13 @@ def select_international_tab(page):
 
             count = locator.count()
 
-            if count == 0:
-                continue
-
             for i in range(count):
-
-                candidate = locator.nth(i)
-
                 try:
+                    candidate = locator.nth(i)
+
                     if not candidate.is_visible():
                         continue
-                except Exception:
-                    continue
 
-                try:
                     print(
                         f"   Clicking tab text: {name}"
                     )
@@ -278,7 +237,8 @@ def select_international_tab(page):
     if not clicked:
 
         print(
-            "   Trying DevExpress tab elements..."
+            "   Text click failed; trying "
+            "DevExpress tab elements..."
         )
 
         selectors = [
@@ -289,7 +249,6 @@ def select_international_tab(page):
         ]
 
         for selector in selectors:
-
             try:
                 locator = page.locator(
                     selector
@@ -298,7 +257,6 @@ def select_international_tab(page):
                 count = locator.count()
 
                 if count >= 2:
-
                     locator.nth(1).click(
                         timeout=10000
                     )
@@ -306,8 +264,7 @@ def select_international_tab(page):
                     clicked = True
                     break
 
-                elif count == 1:
-
+                if count == 1:
                     locator.first.click(
                         timeout=10000
                     )
@@ -330,43 +287,30 @@ def select_international_tab(page):
     # --------------------------------------------------------
     # IMPORTANT:
     #
-    # Do not require ddlMeDoOdrediste to appear immediately
-    # in the AJAX response.
+    # Do NOT wait for ddlMeDoOdrediste here.
     #
-    # We inspect the actual browser DOM and allow the page
-    # time to finish its callback.
+    # The destination selector is not guaranteed to be part
+    # of the tab callback response. It may appear only after
+    # the service/Dopisnica selection.
     # --------------------------------------------------------
 
     try:
-        page.wait_for_timeout(1000)
-    except Exception:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=10000,
+        )
+    except PlaywrightTimeoutError:
         pass
 
-    if not selector_exists(page):
+    page.wait_for_timeout(1200)
 
-        try:
-            page.wait_for_selector(
-                f"select#{DESTINATION_SELECT}",
-                timeout=12000,
-                state="attached",
-            )
-        except PlaywrightTimeoutError:
-            pass
-
-    if not selector_exists(page):
-
-        save_debug(
-            page,
-            "debug_after_international.html",
-        )
-
-        raise RuntimeError(
-            "Međunarodni promet was clicked, but "
-            f"#{DESTINATION_SELECT} is not present."
-        )
+    save_debug(
+        page,
+        "debug_after_international.html",
+    )
 
     print(
-        "   Međunarodni promet activated successfully."
+        "   Međunarodni promet tab callback completed."
     )
 
 
@@ -379,39 +323,33 @@ def select_dopisnica(page):
         "3. Selecting Dopisnica..."
     )
 
-    if not selector_exists(page):
-        raise RuntimeError(
-            "Destination selector is missing before "
-            "Dopisnica."
-        )
+    # --------------------------------------------------------
+    # DO NOT require the destination selector here.
+    #
+    # The previous failure happened because the script assumed
+    # that the selector must exist immediately after activating
+    # Međunarodni promet.
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Check whether already active.
-    # --------------------------------------------------------
+    active = page.locator(
+        "img[src*='Dopisnica_Aktivna.png']"
+    )
 
     try:
-        active = page.locator(
-            "img[src*='Dopisnica_Aktivna.png']"
-        )
-
         if active.count() > 0:
             print(
                 "   Dopisnica is already active."
             )
             return
-
     except Exception:
         pass
 
-    # --------------------------------------------------------
-    # ImageButton8 is the known Dopisnica control.
-    # --------------------------------------------------------
-
     selectors = [
-        f"#{DOPISNICA_BUTTON}",
-        f"input#{DOPISNICA_BUTTON}",
-        f"input[name='{DOPISNICA_BUTTON}']",
-        f"input[id$='{DOPISNICA_BUTTON}']",
+        "#ImageButton8",
+        "input#ImageButton8",
+        "input[name='ImageButton8']",
+        "input[id$='ImageButton8']",
+        "img[src*='Dopisnica']",
     ]
 
     clicked = False
@@ -466,7 +404,8 @@ def select_dopisnica(page):
     if not clicked:
 
         print(
-            "   Direct click failed; trying DOM click..."
+            "   Direct Dopisnica click failed; "
+            "trying DOM click..."
         )
 
         try:
@@ -474,9 +413,7 @@ def select_dopisnica(page):
                 """
                 () => {
                     const el =
-                        document.getElementById(
-                            'ImageButton8'
-                        );
+                        document.getElementById('ImageButton8');
 
                     if (!el) {
                         return false;
@@ -487,7 +424,6 @@ def select_dopisnica(page):
                 }
                 """
             )
-
         except Exception:
             clicked = False
 
@@ -502,21 +438,35 @@ def select_dopisnica(page):
             "Could not click Dopisnica."
         )
 
-    # --------------------------------------------------------
-    # Do NOT wait for networkidle here.
-    # --------------------------------------------------------
-
-    page.wait_for_timeout(
-        1000
+    print(
+        "   Waiting for Dopisnica callback..."
     )
 
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=10000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+    page.wait_for_timeout(1200)
+
+    # --------------------------------------------------------
+    # NOW the destination selector should exist.
+    # --------------------------------------------------------
+
     if not selector_exists(page):
+
+        print(
+            "   Destination selector not immediately "
+            "visible after Dopisnica; waiting..."
+        )
 
         try:
             page.wait_for_selector(
                 f"select#{DESTINATION_SELECT}",
                 timeout=10000,
-                state="attached",
             )
         except PlaywrightTimeoutError:
             pass
@@ -529,17 +479,17 @@ def select_dopisnica(page):
         )
 
         raise RuntimeError(
-            "Dopisnica click completed, but "
-            f"#{DESTINATION_SELECT} disappeared."
+            "Dopisnica was selected, but "
+            f"#{DESTINATION_SELECT} is not present."
         )
 
     print(
-        "   Dopisnica selected successfully."
+        "   Destination selector is available."
     )
 
 
 # ============================================================
-# Avionski prijenos
+# Air transport
 # ============================================================
 
 def select_air_transport(page):
@@ -557,48 +507,49 @@ def select_air_transport(page):
         )
 
     try:
-        if checkbox.is_checked():
-            print(
-                "   Avionski prijenos already enabled."
-            )
-            return
+        checked = checkbox.is_checked()
     except Exception:
-        pass
+        checked = False
+
+    if checked:
+        print(
+            "   Avionski prijenos already enabled."
+        )
+        return
 
     print(
-        "   Clicking Avionski prijenos..."
+        "   Avionski prijenos enabled."
     )
 
     try:
         checkbox.check(
             timeout=10000
         )
-
     except Exception:
-
         checkbox.click(
             timeout=10000
         )
 
-    # Short targeted wait.
-    page.wait_for_timeout(
-        800
-    )
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=10000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+    page.wait_for_timeout(700)
 
     try:
         if not checkbox.is_checked():
             raise RuntimeError(
-                "Checkbox is still unchecked."
+                "Avionski prijenos checkbox "
+                "is still unchecked."
             )
     except Exception as exc:
         raise RuntimeError(
-            "Could not enable Avionski prijenos: "
-            f"{exc}"
+            f"Could not enable Avionski prijenos: {exc}"
         )
-
-    print(
-        "   Avionski prijenos enabled."
-    )
 
 
 # ============================================================
@@ -619,17 +570,14 @@ def set_weight(page):
             f"#{AIR_WEIGHT} was not found."
         )
 
-    weight.fill(
-        WEIGHT
-    )
+    weight.fill(WEIGHT)
 
-    weight.press(
-        "Tab"
-    )
+    try:
+        weight.press("Tab")
+    except Exception:
+        pass
 
-    page.wait_for_timeout(
-        300
-    )
+    page.wait_for_timeout(300)
 
     print(
         "   Weight set."
@@ -637,7 +585,7 @@ def set_weight(page):
 
 
 # ============================================================
-# Country list
+# Countries
 # ============================================================
 
 def get_destinations(page):
@@ -672,9 +620,7 @@ def get_destinations(page):
             )
 
             name = normalize_text(
-                option.inner_text(
-                    timeout=1000
-                )
+                option.inner_text()
             )
 
             if value and name:
@@ -703,7 +649,7 @@ def get_destinations(page):
 
 
 # ============================================================
-# Calculator controls
+# Country selection
 # ============================================================
 
 def select_country(page, code):
@@ -720,16 +666,15 @@ def select_country(page, code):
         value=code
     )
 
-    # --------------------------------------------------------
-    # The select has an ASP.NET onchange/postback.
-    #
-    # We deliberately do NOT wait for networkidle.
-    # --------------------------------------------------------
-
+    # Allow any client-side onchange logic to run.
     page.wait_for_timeout(
         COUNTRY_WAIT_MS
     )
 
+
+# ============================================================
+# Calculate
+# ============================================================
 
 def click_calculate(page):
     selectors = [
@@ -767,6 +712,10 @@ def click_calculate(page):
                         timeout=5000
                     )
 
+                    # Do not wait for full networkidle here.
+                    # The calculator may keep connections open.
+                    page.wait_for_timeout(450)
+
                     return
 
                 except Exception:
@@ -780,76 +729,85 @@ def click_calculate(page):
     )
 
 
-def wait_for_result(page):
-    """
-    Wait for a recognizable calculator result.
+# ============================================================
+# Result parsing
+# ============================================================
 
-    This is considerably faster than networkidle.
-    """
+def parse_price(text):
+    text = normalize_text(text)
 
-    deadline = (
-        time.monotonic()
-        + RESULT_TIMEOUT_MS / 1000
+    # Primary format:
+    #
+    # Ukupna cijena 2,20 KM
+    #
+    match = re.search(
+        r"Ukupna\s+cijena\s*"
+        r"([0-9]+(?:[,.][0-9]+)?)"
+        r"\s*KM",
+        text,
+        flags=re.IGNORECASE,
     )
 
-    last_signature = ""
+    if not match:
 
-    while time.monotonic() < deadline:
-
-        result = get_result_text(
-            page
+        # Fallback:
+        #
+        # 2,20 KM
+        #
+        match = re.search(
+            r"\b([0-9]+(?:[,.][0-9]+)?)"
+            r"\s*KM\b",
+            text,
+            flags=re.IGNORECASE,
         )
 
-        error = get_error_text(
-            page
+    if not match:
+        return None
+
+    value_text = match.group(1)
+
+    try:
+        value = float(
+            value_text.replace(",", ".")
         )
+    except ValueError:
+        return None
 
-        combined = normalize_text(
-            f"{result} {error}"
-        )
-
-        if combined:
-
-            if (
-                SUSPENDED_MESSAGE.lower()
-                in combined.lower()
-            ):
-                return combined
-
-            if re.search(
-                r"Ukupna\s+cijena",
-                combined,
-                flags=re.IGNORECASE,
-            ):
-                return combined
-
-            if re.search(
-                r"\b[0-9]+(?:[,.][0-9]+)?\s*KM\b",
-                combined,
-                flags=re.IGNORECASE,
-            ):
-                return combined
-
-            last_signature = combined
-
-        page.wait_for_timeout(
-            100
-        )
-
-    return last_signature
+    return value_text, value
 
 
-# ============================================================
-# Price parsing
-# ============================================================
+def calculate_country(page, code):
+    select_country(
+        page,
+        code,
+    )
 
-def parse_calculator_result(text):
+    # Make sure weight remains 10 g.
+    weight = page.locator(
+        f"#{AIR_WEIGHT}"
+    )
+
+    if weight.count() > 0:
+        try:
+            current = weight.input_value()
+
+            if current != WEIGHT:
+                weight.fill(WEIGHT)
+        except Exception:
+            pass
+
+    click_calculate(page)
+
+    # Read result.
+    text = get_result_text(page)
+    error_text = get_error_text(page)
+
     combined = normalize_text(
-        text
+        f"{error_text} {text}"
     )
 
     # --------------------------------------------------------
-    # Suspended.
+    # Suspended
     # --------------------------------------------------------
 
     if (
@@ -862,202 +820,35 @@ def parse_calculator_result(text):
         )
 
     # --------------------------------------------------------
-    # Preferred exact result format.
+    # Price
     # --------------------------------------------------------
 
-    match = re.search(
-        r"Ukupna\s+cijena\s*"
-        r"([0-9]+(?:[,.][0-9]+)?)"
-        r"\s*KM",
-        combined,
-        flags=re.IGNORECASE,
+    price = parse_price(
+        combined
     )
 
-    if match:
+    if price is not None:
 
-        number = match.group(1)
+        price_text, price_value = price
 
-        price = (
-            f"{number} KM"
-        )
-
-        try:
-            value = float(
-                number.replace(
-                    ",",
-                    ".",
-                )
-            )
-        except ValueError:
-            value = None
-
-        if value == 0:
+        if price_value == 0:
             return (
                 "UNKNOWN",
-                f"Ukupna cijena {price}",
+                f"Ukupna cijena {price_text} KM",
             )
 
         return (
             "AVAILABLE",
-            price,
+            f"{price_text} KM",
         )
 
     # --------------------------------------------------------
-    # Generic KM fallback.
+    # Unknown
     # --------------------------------------------------------
-
-    match = re.search(
-        r"\b"
-        r"([0-9]+(?:[,.][0-9]+)?)"
-        r"\s*KM\b",
-        combined,
-        flags=re.IGNORECASE,
-    )
-
-    if match:
-
-        number = match.group(1)
-
-        price = (
-            f"{number} KM"
-        )
-
-        try:
-            value = float(
-                number.replace(
-                    ",",
-                    ".",
-                )
-            )
-        except ValueError:
-            value = None
-
-        if value == 0:
-            return (
-                "UNKNOWN",
-                f"Ukupna cijena {price}",
-            )
-
-        return (
-            "AVAILABLE",
-            price,
-        )
 
     return (
         "UNKNOWN",
         "Cijena nije pronađena",
-    )
-
-
-# ============================================================
-# One country
-# ============================================================
-
-def calculate_country(page, code):
-    """
-    Calculate one country.
-
-    The important optimization is that this function does
-    not wait for networkidle.
-    """
-
-    select_country(
-        page,
-        code,
-    )
-
-    # --------------------------------------------------------
-    # Keep weight at 10 g.
-    # --------------------------------------------------------
-
-    weight = page.locator(
-        f"#{AIR_WEIGHT}"
-    )
-
-    if weight.count() > 0:
-
-        try:
-            current = weight.input_value()
-
-            if current != WEIGHT:
-                weight.fill(
-                    WEIGHT
-                )
-
-        except Exception:
-            try:
-                weight.fill(
-                    WEIGHT
-                )
-            except Exception:
-                pass
-
-    # --------------------------------------------------------
-    # Click calculator.
-    # --------------------------------------------------------
-
-    click_calculate(
-        page
-    )
-
-    # --------------------------------------------------------
-    # Wait specifically for result.
-    # --------------------------------------------------------
-
-    text = wait_for_result(
-        page
-    )
-
-    # --------------------------------------------------------
-    # If wait_for_result returned nothing, inspect once more.
-    # --------------------------------------------------------
-
-    if not text:
-        result = get_result_text(
-            page
-        )
-
-        error = get_error_text(
-            page
-        )
-
-        text = normalize_text(
-            f"{result} {error}"
-        )
-
-    return parse_calculator_result(
-        text
-    )
-
-
-# ============================================================
-# Output
-# ============================================================
-
-def save_results(
-    available,
-    suspended,
-    unknown,
-    errors,
-):
-    write_lines(
-        AVAILABLE_FILE,
-        available,
-    )
-
-    write_lines(
-        SUSPENDED_FILE,
-        suspended,
-    )
-
-    write_lines(
-        UNKNOWN_FILE,
-        unknown,
-    )
-
-    write_lines(
-        ERROR_FILE,
-        errors,
     )
 
 
@@ -1102,21 +893,14 @@ def main():
 
         page = context.new_page()
 
-        # ----------------------------------------------------
-        # Important:
-        #
-        # Keep default timeout reasonably short. A hung
-        # selector should not consume minutes.
-        # ----------------------------------------------------
-
         page.set_default_timeout(
-            10000
+            15000
         )
 
         try:
 
             # =================================================
-            # 1. Open calculator
+            # 1. Open
             # =================================================
 
             page.goto(
@@ -1126,7 +910,7 @@ def main():
             )
 
             page.wait_for_timeout(
-                1200
+                1000
             )
 
             print(
@@ -1136,11 +920,11 @@ def main():
 
             save_debug(
                 page,
-                DEBUG_ORIGINAL,
+                "debug_original_page.html",
             )
 
             # =================================================
-            # 2. International traffic
+            # 2. International
             # =================================================
 
             select_international_tab(
@@ -1156,7 +940,7 @@ def main():
             )
 
             # =================================================
-            # 4. Read destinations
+            # 4. Countries
             # =================================================
 
             destinations = get_destinations(
@@ -1170,7 +954,7 @@ def main():
             )
 
             # =================================================
-            # 5. Air transport
+            # 5. Air
             # =================================================
 
             select_air_transport(
@@ -1186,21 +970,15 @@ def main():
             )
 
             # =================================================
-            # Re-read after configuration.
+            # Re-read countries
             # =================================================
 
             destinations = get_destinations(
                 page
             )
 
-            print()
-            print(
-                f"Destination list contains "
-                f"{len(destinations)} countries."
-            )
-
             # =================================================
-            # 7. Check every destination
+            # 7. Check countries
             # =================================================
 
             print()
@@ -1213,129 +991,156 @@ def main():
             unknown = []
             errors = []
 
+            total = len(
+                destinations
+            )
+
             for number, (code, country) in enumerate(
                 destinations,
                 start=1,
             ):
 
-                check_runtime(
+                # ------------------------------------------------
+                # Runtime guard
+                # ------------------------------------------------
+
+                if runtime_exceeded(
                     start_time
-                )
+                ):
+                    raise RuntimeError(
+                        "Maximum monitor runtime reached."
+                    )
 
                 print(
-                    f"[{number}/{len(destinations)}] "
+                    f"[{number}/{total}] "
                     f"{country} ({code})",
                     flush=True,
                 )
 
-                success = False
+                try:
 
-                for attempt in range(
-                    1,
-                    MAX_COUNTRY_RETRIES + 1,
-                ):
+                    status, detail = calculate_country(
+                        page,
+                        code,
+                    )
 
-                    try:
-
-                        status, detail = (
-                            calculate_country(
-                                page,
-                                code,
-                            )
-                        )
-
-                        if status == "AVAILABLE":
-
-                            print(
-                                f"    -> AVAILABLE "
-                                f"({detail})",
-                                flush=True,
-                            )
-
-                            available.append(
-                                country
-                            )
-
-                        elif status == "SUSPENDED":
-
-                            print(
-                                "    -> SUSPENDED",
-                                flush=True,
-                            )
-
-                            suspended.append(
-                                country
-                            )
-
-                        else:
-
-                            print(
-                                f"    -> UNKNOWN "
-                                f"({detail})",
-                                flush=True,
-                            )
-
-                            unknown.append(
-                                country
-                            )
-
-                        success = True
-                        break
-
-                    except Exception as exc:
+                    if status == "AVAILABLE":
 
                         print(
-                            f"    attempt "
-                            f"{attempt}/"
-                            f"{MAX_COUNTRY_RETRIES} "
-                            f"failed: {exc}",
+                            f"    -> AVAILABLE "
+                            f"({detail})",
                             flush=True,
                         )
 
-                        if attempt < MAX_COUNTRY_RETRIES:
+                        available.append(
+                            country
+                        )
 
-                            page.wait_for_timeout(
-                                RETRY_DELAY_MS
-                            )
+                    elif status == "SUSPENDED":
 
-                # ------------------------------------------------
-                # All attempts failed.
-                # ------------------------------------------------
+                        print(
+                            "    -> SUSPENDED",
+                            flush=True,
+                        )
 
-                if not success:
+                        suspended.append(
+                            country
+                        )
+
+                    else:
+
+                        print(
+                            f"    -> UNKNOWN "
+                            f"({detail})",
+                            flush=True,
+                        )
+
+                        unknown.append(
+                            country
+                        )
+
+                except Exception as exc:
 
                     print(
-                        "    -> ERROR",
+                        f"    -> ERROR: {exc}",
                         flush=True,
                     )
 
                     errors.append(
-                        f"{country} | "
-                        f"Could not calculate country"
+                        f"{country} | {exc}"
                     )
 
-                # ------------------------------------------------
-                # SAVE PROGRESS AFTER EVERY COUNTRY.
-                #
-                # If GitHub Actions terminates the process,
-                # already completed results are still on disk.
-                # ------------------------------------------------
+                    # --------------------------------------------
+                    # Do not restart the entire browser for every
+                    # individual error. That was one of the major
+                    # causes of excessive runtime.
+                    # --------------------------------------------
 
-                save_results(
-                    available,
-                    suspended,
-                    unknown,
-                    errors,
-                )
+                    try:
+                        if not selector_exists(page):
+                            print(
+                                "    Selector disappeared; "
+                                "attempting page recovery...",
+                                flush=True,
+                            )
+
+                            page.reload(
+                                wait_until="domcontentloaded",
+                                timeout=30000,
+                            )
+
+                            page.wait_for_timeout(
+                                1000
+                            )
+
+                            select_international_tab(
+                                page
+                            )
+
+                            select_dopisnica(
+                                page
+                            )
+
+                            select_air_transport(
+                                page
+                            )
+
+                            set_weight(
+                                page
+                            )
+
+                    except Exception as recovery_exc:
+
+                        print(
+                            "    Recovery failed: "
+                            f"{recovery_exc}",
+                            flush=True,
+                        )
+
+                # Small pause to avoid hammering the site.
+                time.sleep(0.15)
 
             # =================================================
-            # 8. Final output
+            # 8. Write files
             # =================================================
 
-            save_results(
+            write_lines(
+                AVAILABLE_FILE,
                 available,
+            )
+
+            write_lines(
+                SUSPENDED_FILE,
                 suspended,
+            )
+
+            write_lines(
+                UNKNOWN_FILE,
                 unknown,
+            )
+
+            write_lines(
+                ERROR_FILE,
                 errors,
             )
 
@@ -1359,7 +1164,7 @@ def main():
                 "========================================"
             )
             print(
-                f"Destinations: {len(destinations)}"
+                f"Destinations: {total}"
             )
             print(
                 f"Available:    {len(available)}"
@@ -1380,15 +1185,6 @@ def main():
                 "========================================"
             )
 
-        except Exception:
-
-            save_debug(
-                page,
-                DEBUG_FAILURE,
-            )
-
-            raise
-
         finally:
 
             browser.close()
@@ -1401,7 +1197,6 @@ def main():
 if __name__ == "__main__":
 
     try:
-
         main()
 
     except Exception as exc:
