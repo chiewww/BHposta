@@ -1,3 +1,110 @@
+```yaml
+name: Monitor BH Posta Countries
+
+on:
+  schedule:
+    # Run once every day at 03:00 UTC.
+    - cron: "0 3 * * *"
+
+  # Allows manual testing from GitHub Actions.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    # Allow enough time for all 262+ destinations.
+    timeout-minutes: 30
+
+    steps:
+      # ------------------------------------------------------
+      # Check out repository
+      # ------------------------------------------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # Set up Python
+      # ------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # ------------------------------------------------------
+      # Install Python dependencies
+      # ------------------------------------------------------
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright requests beautifulsoup4
+
+      # ------------------------------------------------------
+      # Install Chromium and Linux dependencies
+      # ------------------------------------------------------
+      - name: Install Playwright Chromium
+        run: |
+          python -m playwright install --with-deps chromium
+
+      # ------------------------------------------------------
+      # Run BH Posta monitor
+      # ------------------------------------------------------
+      - name: Monitor BH Posta countries
+        run: |
+          python monitor.py
+
+      # ------------------------------------------------------
+      # Show generated files
+      # ------------------------------------------------------
+      - name: Show monitor results
+        if: always()
+        run: |
+          echo "========================================"
+          echo "AVAILABLE COUNTRIES"
+          echo "========================================"
+
+          if [ -f available_countries.txt ]; then
+            cat available_countries.txt
+          else
+            echo "available_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "SUSPENDED COUNTRIES"
+          echo "========================================"
+
+          if [ -f suspended_countries.txt ]; then
+            cat suspended_countries.txt
+          else
+            echo "suspended_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "UNKNOWN COUNTRIES"
+          echo "========================================"
+
+          if [ -f unknown_countries.txt ]; then
+            cat unknown_countries.txt
+          else
+            echo "unknown_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "ERROR COUNTRIES"
+          echo "========================================"
+
+          if [ -f error_countries.txt ]; then
+            cat error_countries.txt
+          else
+            echo "error_countries.txt not found"
+          fi
+
       # ------------------------------------------------------
       # Check whether monitored files changed
       # ------------------------------------------------------
@@ -20,12 +127,16 @@
             error_countries.txt
           do
             if [ -f "$file" ]; then
+              echo
               echo "Found: $file"
 
+              # Detect modifications to tracked files.
               if ! git diff --quiet -- "$file"; then
+                echo "  -> modified"
                 changed=true
               fi
 
+              # Detect newly created untracked files.
               if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
                 echo "  -> tracked"
               else
@@ -33,25 +144,28 @@
                 changed=true
               fi
             else
+              echo
               echo "Missing: $file"
             fi
           done
 
+          echo
+          echo "========================================"
+
           if [ "$changed" = "true" ]; then
+            echo "Changes detected."
             echo "changed=true" >> "$GITHUB_OUTPUT"
 
             echo
-            echo "Changes detected."
-            echo
             echo "========================================"
-            echo "STATUS"
+            echo "GIT STATUS"
             echo "========================================"
 
             git status --short
 
             echo
             echo "========================================"
-            echo "DIFF"
+            echo "GIT DIFF"
             echo "========================================"
 
             git diff -- \
@@ -59,10 +173,9 @@
               suspended_countries.txt \
               unknown_countries.txt \
               error_countries.txt || true
-
           else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No changes detected."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       # ------------------------------------------------------
@@ -80,8 +193,13 @@
             unknown_countries.txt \
             error_countries.txt
 
+          echo "========================================"
+          echo "FILES TO COMMIT"
+          echo "========================================"
+
           git status --short
 
           git commit -m "Update international postcard country lists"
 
           git push
+```
