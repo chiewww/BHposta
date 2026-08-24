@@ -10,8 +10,6 @@ import urllib3
 
 URL = "https://www.posta.ba/kalkulator-cijena/"
 
-OUTPUT_FILE = Path("countries.txt")
-
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -22,57 +20,52 @@ HEADERS = {
         "text/html,application/xhtml+xml,application/xml;"
         "q=0.9,image/avif,image/webp,*/*;q=0.8"
     ),
-    "Accept-Language": "bs-BA,bs;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Language": "hr-HR,hr;q=0.9,bs;q=0.8,en;q=0.7",
 }
 
-# posta.ba currently presents an SSL certificate chain
-# that the GitHub Python environment does not trust.
+OUTPUT_FILE = Path("countries.txt")
+
+DEBUG_INITIAL = Path("debug_initial.html")
+DEBUG_INTERNATIONAL = Path("debug_international.html")
+DEBUG_DOPISNICA = Path("debug_dopisnica.html")
+
+# The site's certificate chain is not trusted by the
+# GitHub Actions Python environment.
 urllib3.disable_warnings(
     urllib3.exceptions.InsecureRequestWarning
 )
 
 
-def get_page(session):
-    print("STEP 1: Fetching calculator page...")
-
-    response = session.get(
-        URL,
-        headers=HEADERS,
-        timeout=60,
-        verify=False,
+def save_debug(path, response):
+    path.write_text(
+        response.text,
+        encoding="utf-8",
     )
 
-    response.raise_for_status()
-
-    print(f"HTTP status: {response.status_code}")
     print(
-        f"Downloaded: "
-        f"{len(response.content):,} bytes"
+        f"Saved debug HTML: {path}"
     )
 
-    return response
 
+def get_form(response):
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
 
-def get_form(soup):
     form = soup.find("form")
 
     if form is None:
         raise RuntimeError(
-            "Could not find the ASP.NET form."
+            "Could not find <form> in returned HTML."
         )
 
-    return form
+    return soup, form
 
 
-def collect_form_data(form):
-    """
-    Collect the current ASP.NET Web Forms fields,
-    including ViewState and EventValidation.
-    """
-
+def collect_hidden_fields(form):
     data = {}
 
-    # Hidden ASP.NET fields.
     for element in form.select(
         'input[type="hidden"]'
     ):
@@ -84,127 +77,132 @@ def collect_form_data(form):
                 "",
             )
 
-    # Current values of select controls.
-    for select in form.find_all("select"):
-        name = select.get("name")
-
-        if not name:
-            continue
-
-        selected = select.find(
-            "option",
-            selected=True,
-        )
-
-        if selected is not None:
-            data[name] = selected.get(
-                "value",
-                "",
-            )
-
-    # Ordinary inputs.
-    for element in form.find_all("input"):
-        name = element.get("name")
-
-        if not name:
-            continue
-
-        input_type = element.get(
-            "type",
-            "text",
-        ).lower()
-
-        if input_type in (
-            "hidden",
-            "submit",
-            "button",
-            "image",
-            "reset",
-        ):
-            continue
-
-        if input_type in (
-            "checkbox",
-            "radio",
-        ):
-            if element.has_attr("checked"):
-                data[name] = element.get(
-                    "value",
-                    "on",
-                )
-        else:
-            data[name] = element.get(
-                "value",
-                "",
-            )
-
-    # Textareas.
-    for element in form.find_all("textarea"):
-        name = element.get("name")
-
-        if name:
-            data[name] = element.text or ""
-
     return data
 
 
-def get_post_url(response, form):
-    action = form.get("action")
+def find_control(response, control_id):
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
 
-    if not action:
-        return response.url
-
-    return requests.compat.urljoin(
-        response.url,
-        action,
+    return soup.find(
+        id=control_id
     )
 
 
+def inspect_page(response, label):
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    print()
+    print("=" * 70)
+    print(f"PAGE INSPECTION: {label}")
+    print("=" * 70)
+
+    controls = [
+        "ASPxTabControl1",
+        "ASPxTabControl1_AT1",
+        "ImageButton8",
+        "pnlMeDopisnice",
+        "ddlMeDoOdrediste",
+        "pnlMeObicnoPismo",
+        "ddlMeObPiOderdiste",
+    ]
+
+    for control_id in controls:
+        element = soup.find(
+            id=control_id
+        )
+
+        if element is None:
+            print(
+                f"{control_id}: NOT FOUND"
+            )
+        else:
+            print(
+                f"{control_id}: FOUND"
+            )
+
+            if control_id == "ImageButton8":
+                print(
+                    f"  src = "
+                    f"{element.get('src')}"
+                )
+
+    print("=" * 70)
+
+
+def initial_get(session):
+    print(
+        "STEP 1: Fetching calculator page..."
+    )
+
+    response = session.get(
+        URL,
+        headers=HEADERS,
+        timeout=60,
+        verify=False,
+    )
+
+    response.raise_for_status()
+
+    print(
+        f"HTTP status: {response.status_code}"
+    )
+
+    print(
+        f"Downloaded: "
+        f"{len(response.content):,} bytes"
+    )
+
+    save_debug(
+        DEBUG_INITIAL,
+        response,
+    )
+
+    inspect_page(
+        response,
+        "INITIAL GET",
+    )
+
+    return response
+
+
 def select_international(session, response):
-    """
-    Explicitly select:
-
-        Međunarodni promet
-
-    The HTML shows an ASPxClientTabControl named
-    ASPxTabControl1 with activeTabIndex 1.
-
-    The tab control uses autoPostBack=true.
-
-    We reproduce the tab postback by sending the
-    ASP.NET control event for ASPxTabControl1.
-    """
-
     print()
     print(
         "STEP 2: Selecting "
         "'Međunarodni promet'..."
     )
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
+    soup, form = get_form(response)
 
-    form = get_form(soup)
+    data = collect_hidden_fields(form)
 
-    data = collect_form_data(form)
+    action = form.get("action")
 
-    post_url = get_post_url(
-        response,
-        form,
-    )
+    if action:
+        post_url = requests.compat.urljoin(
+            response.url,
+            action,
+        )
+    else:
+        post_url = response.url
 
-    # ASPxTabControl1 is the actual DevExpress
-    # tab control shown in the supplied HTML.
     #
-    # Tab index:
-    #   0 = Unutrašnji promet
-    #   1 = Međunarodni promet
+    # The supplied HTML shows:
     #
-    # DevExpress ASPx controls use their own callback/
-    # postback mechanism. We submit the control event
-    # and explicitly request tab 1.
+    # ASPxTabControl1
+    # activeTabIndex: 1
+    # autoPostBack: true
+    #
+    # We first try the ASP.NET WebForms-style
+    # postback with the actual tab control.
+    #
+
     data["__EVENTTARGET"] = "ASPxTabControl1"
     data["__EVENTARGUMENT"] = "1"
 
@@ -234,69 +232,54 @@ def select_international(session, response):
         f"{len(response2.content):,} bytes"
     )
 
-    # Verify what came back.
-    soup2 = BeautifulSoup(
-        response2.text,
-        "html.parser",
+    save_debug(
+        DEBUG_INTERNATIONAL,
+        response2,
     )
 
-    international_text = soup2.find(
-        string=lambda text:
-            text and "Međunarodni promet" in text
+    inspect_page(
+        response2,
+        "AFTER INTERNATIONAL TAB POST",
     )
-
-    if international_text is not None:
-        print(
-            "Confirmed: "
-            "'Međunarodni promet' is present."
-        )
-    else:
-        print(
-            "WARNING: Could not independently "
-            "confirm the International tab."
-        )
 
     return response2
 
 
 def click_dopisnica(session, response):
-    """
-    Click ImageButton8, which is the Dopisnica
-    button:
-
-        name="ImageButton8"
-        id="ImageButton8"
-        title="Dopisnica"
-    """
-
     print()
     print(
         "STEP 3: Clicking "
         "'Dopisnica'..."
     )
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
+    soup, form = get_form(response)
 
-    form = get_form(soup)
+    data = collect_hidden_fields(form)
 
-    data = collect_form_data(form)
+    action = form.get("action")
 
-    post_url = get_post_url(
-        response,
-        form,
-    )
+    if action:
+        post_url = requests.compat.urljoin(
+            response.url,
+            action,
+        )
+    else:
+        post_url = response.url
 
-    # ImageButton controls submit x/y coordinates.
+    #
+    # ImageButton8 is:
+    #
+    # <input type="image"
+    #        name="ImageButton8"
+    #        id="ImageButton8"
+    #        title="Dopisnica"
+    #        ...>
+    #
+    # ASP.NET ImageButton submits .x and .y.
+    #
+
     data["ImageButton8.x"] = "40"
     data["ImageButton8.y"] = "25"
-
-    # This is a normal image-button submit,
-    # not an __doPostBack event.
-    data["__EVENTTARGET"] = ""
-    data["__EVENTARGUMENT"] = ""
 
     response2 = session.post(
         post_url,
@@ -324,45 +307,24 @@ def click_dopisnica(session, response):
         f"{len(response2.content):,} bytes"
     )
 
-    # Confirm Dopisnica is actually active.
-    soup2 = BeautifulSoup(
-        response2.text,
-        "html.parser",
+    save_debug(
+        DEBUG_DOPISNICA,
+        response2,
     )
 
-    dopisnica_image = soup2.find(
-        "input",
-        id="ImageButton8",
+    inspect_page(
+        response2,
+        "AFTER DOPISNICA POST",
     )
-
-    if dopisnica_image is not None:
-        src = dopisnica_image.get(
-            "src",
-            "",
-        )
-
-        print(
-            f"ImageButton8 image: {src}"
-        )
-
-        if "Dopisnica_Aktivna" in src:
-            print(
-                "Confirmed: "
-                "Dopisnica is active."
-            )
 
     return response2
 
 
 def extract_countries(response):
-    """
-    Extract countries from the Dopisnica panel.
-    """
-
     print()
     print(
-        "STEP 4: Extracting "
-        "Dopisnica countries..."
+        "STEP 4: Looking for "
+        "#ddlMeDoOdrediste..."
     )
 
     soup = BeautifulSoup(
@@ -370,48 +332,36 @@ def extract_countries(response):
         "html.parser",
     )
 
-    panel = soup.find(
-        "div",
-        id="pnlMeDopisnice",
-    )
-
-    if panel is None:
-        raise RuntimeError(
-            "Could not find #pnlMeDopisnice. "
-            "The Dopisnica selection did not "
-            "produce the expected panel."
-        )
-
-    country_select = panel.find(
+    select = soup.find(
         "select",
         id="ddlMeDoOdrediste",
     )
 
-    if country_select is None:
+    if select is None:
         raise RuntimeError(
             "Could not find "
-            "#ddlMeDoOdrediste inside "
-            "#pnlMeDopisnice."
+            "#ddlMeDoOdrediste."
         )
 
-    options = country_select.find_all(
+    options = select.find_all(
         "option"
     )
 
     if not options:
         raise RuntimeError(
-            "The country dropdown contains "
-            "no <option> elements."
+            "#ddlMeDoOdrediste exists, "
+            "but contains no options."
         )
 
     countries = []
 
+    #
     # IMPORTANT:
     #
-    # DO NOT SORT.
+    # We deliberately DO NOT sort these.
+    # The order is exactly the order supplied
+    # by the website.
     #
-    # This preserves exactly the order returned
-    # by BH Pošta.
     for option in options:
         value = option.get(
             "value",
@@ -432,20 +382,16 @@ def extract_countries(response):
             )
         )
 
-    if not countries:
-        raise RuntimeError(
-            "No country options were extracted."
-        )
+    print()
+    print(
+        f"Found {len(countries)} "
+        f"country options."
+    )
 
     return countries
 
 
-def write_output(countries):
-    print()
-    print(
-        "STEP 5: Writing countries.txt..."
-    )
-
+def write_countries(countries):
     lines = []
 
     for value, name in countries:
@@ -460,68 +406,60 @@ def write_output(countries):
 
     print()
     print(
-        f"SUCCESS: {len(countries)} "
-        f"country options written."
+        f"Wrote {len(lines)} entries to "
+        f"{OUTPUT_FILE}"
     )
-
-    print(
-        f"Output file: {OUTPUT_FILE}"
-    )
-
-    print()
-    print("=" * 70)
-    print(
-        "COUNTRIES — ORIGINAL WEBSITE ORDER"
-    )
-    print("=" * 70)
-
-    for line in lines:
-        print(line)
-
-    print("=" * 70)
 
 
 def main():
     session = requests.Session()
 
     try:
-        # 1. GET the calculator.
-        response = get_page(session)
+        response = initial_get(
+            session
+        )
 
-        # 2. Explicitly select International traffic.
         response = select_international(
             session,
             response,
         )
 
-        # 3. Click Dopisnica.
         response = click_dopisnica(
             session,
             response,
         )
 
-        # 4. Extract countries.
         countries = extract_countries(
-            response,
+            response
         )
 
-        # 5. Save countries.txt.
-        write_output(countries)
+        write_countries(
+            countries
+        )
+
+        print()
+        print(
+            "SUCCESS"
+        )
 
         return 0
 
     except requests.RequestException as exc:
         print()
         print(
-            "ERROR: Website request failed:"
+            "ERROR: HTTP request failed:"
         )
         print(exc)
+
         return 1
 
     except Exception as exc:
         print()
-        print("ERROR:")
+        print(
+            "ERROR:"
+        )
         print(exc)
+
         return 1
 
 
