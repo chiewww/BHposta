@@ -56,10 +56,12 @@ jobs:
       # Show generated files
       # ------------------------------------------------------
       - name: Show monitor results
+        if: always()
         run: |
           echo "========================================"
           echo "AVAILABLE COUNTRIES"
           echo "========================================"
+
           if [ -f available_countries.txt ]; then
             cat available_countries.txt
           else
@@ -70,6 +72,7 @@ jobs:
           echo "========================================"
           echo "SUSPENDED COUNTRIES"
           echo "========================================"
+
           if [ -f suspended_countries.txt ]; then
             cat suspended_countries.txt
           else
@@ -80,6 +83,7 @@ jobs:
           echo "========================================"
           echo "UNKNOWN COUNTRIES"
           echo "========================================"
+
           if [ -f unknown_countries.txt ]; then
             cat unknown_countries.txt
           else
@@ -90,10 +94,22 @@ jobs:
           echo "========================================"
           echo "ERROR COUNTRIES"
           echo "========================================"
+
           if [ -f error_countries.txt ]; then
             cat error_countries.txt
           else
             echo "error_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "OUTPUT"
+          echo "========================================"
+
+          if [ -f output.txt ]; then
+            cat output.txt
+          else
+            echo "output.txt not found"
           fi
 
       # ------------------------------------------------------
@@ -101,12 +117,14 @@ jobs:
       # ------------------------------------------------------
       - name: Check for changes
         id: changes
+        if: success()
         run: |
           if git diff --quiet -- \
             available_countries.txt \
             suspended_countries.txt \
             unknown_countries.txt \
-            error_countries.txt
+            error_countries.txt \
+            output.txt
           then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No changes detected."
@@ -118,7 +136,8 @@ jobs:
               available_countries.txt \
               suspended_countries.txt \
               unknown_countries.txt \
-              error_countries.txt
+              error_countries.txt \
+              output.txt
           fi
 
       # ------------------------------------------------------
@@ -134,7 +153,8 @@ jobs:
             available_countries.txt \
             suspended_countries.txt \
             unknown_countries.txt \
-            error_countries.txt
+            error_countries.txt \
+            output.txt
 
           git commit -m "Update international postcard country lists"
 
