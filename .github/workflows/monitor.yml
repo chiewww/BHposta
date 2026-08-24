@@ -15,49 +15,90 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
 
+    # The monitor checks 262 destinations.
+    # Give it enough time to complete reliably.
+    timeout-minutes: 30
+
+    env:
+      PYTHONUNBUFFERED: "1"
+
     steps:
-      # ------------------------------------------------------
+
+      # ======================================================
       # Check out repository
-      # ------------------------------------------------------
+      # ======================================================
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      # ------------------------------------------------------
+      # ======================================================
       # Set up Python
-      # ------------------------------------------------------
+      # ======================================================
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
+          cache: "pip"
 
-      # ------------------------------------------------------
+      # ======================================================
       # Install Python dependencies
-      # ------------------------------------------------------
+      # ======================================================
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install playwright requests beautifulsoup4
+          python -m pip install \
+            playwright \
+            requests \
+            beautifulsoup4
 
-      # ------------------------------------------------------
-      # Install Chromium and Linux dependencies
-      # ------------------------------------------------------
+      # ======================================================
+      # Install Chromium + Linux dependencies
+      # ======================================================
       - name: Install Playwright Chromium
         run: |
           python -m playwright install --with-deps chromium
 
-      # ------------------------------------------------------
-      # Run BH Posta monitor
-      # ------------------------------------------------------
-      - name: Monitor BH Posta countries
+      # ======================================================
+      # Show environment information
+      # ======================================================
+      - name: Show environment
         run: |
-          python monitor.py
+          echo "========================================"
+          echo "ENVIRONMENT"
+          echo "========================================"
 
-      # ------------------------------------------------------
+          python --version
+          python -m pip --version
+          python -m playwright --version
+
+          echo
+          echo "Working directory:"
+          pwd
+
+          echo
+          echo "Repository files:"
+          ls -la
+
+      # ======================================================
+      # Run BH Posta monitor
+      # ======================================================
+      - name: Monitor BH Posta countries
+        id: monitor
+        run: |
+          echo "========================================"
+          echo "STARTING BH POSTA MONITOR"
+          echo "========================================"
+
+          python -u monitor.py
+
+      # ======================================================
       # Show generated files
-      # ------------------------------------------------------
+      # ======================================================
       - name: Show monitor results
         if: always()
         run: |
+          echo
           echo "========================================"
           echo "AVAILABLE COUNTRIES"
           echo "========================================"
@@ -101,14 +142,37 @@ jobs:
             echo "error_countries.txt not found"
           fi
 
-      # ------------------------------------------------------
+      # ======================================================
+      # Save debug files if monitor fails
+      # ======================================================
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bh-posta-debug
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            debug_original_page.html
+            debug_after_international.html
+            debug_after_dopisnica.html
+            debug_before_dopisnica_failure.html
+            debug_after_dopisnica_failure.html
+            debug_failure.html
+
+      # ======================================================
       # Check whether monitored files changed
-      # ------------------------------------------------------
+      # ======================================================
       - name: Check for changes
         id: changes
         if: always()
+        shell: bash
         run: |
           changed=false
+
+          echo "========================================"
+          echo "CHECKING FOR CHANGES"
+          echo "========================================"
 
           for file in \
             available_countries.txt \
@@ -116,20 +180,35 @@ jobs:
             unknown_countries.txt \
             error_countries.txt
           do
+
             if [ -f "$file" ]; then
+
+              echo
+              echo "Checking: $file"
+
               if ! git diff --quiet -- "$file"; then
                 changed=true
+                echo "Changed: YES"
+              else
+                echo "Changed: NO"
               fi
+
+            else
+
+              echo "Not generated: $file"
+
             fi
+
           done
 
-          if [ "$changed" = "true" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Changes detected."
+          echo
 
-            echo
+          if [ "$changed" = "true" ]; then
+
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+
             echo "========================================"
-            echo "DIFF"
+            echo "CHANGES DETECTED"
             echo "========================================"
 
             git diff -- \
@@ -137,17 +216,28 @@ jobs:
               suspended_countries.txt \
               unknown_countries.txt \
               error_countries.txt || true
+
           else
+
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No changes detected."
+
+            echo "========================================"
+            echo "NO CHANGES DETECTED"
+            echo "========================================"
+
           fi
 
-      # ------------------------------------------------------
+      # ======================================================
       # Commit changed country lists
-      # ------------------------------------------------------
+      # ======================================================
       - name: Commit changed country lists
         if: steps.changes.outputs.changed == 'true'
+        shell: bash
         run: |
+          echo "========================================"
+          echo "COMMITTING COUNTRY LIST CHANGES"
+          echo "========================================"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -157,6 +247,31 @@ jobs:
             unknown_countries.txt \
             error_countries.txt
 
-          git commit -m "Update international postcard country lists"
+          if git diff --cached --quiet; then
+            echo "Nothing staged to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "Update international postcard country lists"
 
           git push
+
+      # ======================================================
+      # Final status
+      # ======================================================
+      - name: Final status
+        if: always()
+        run: |
+          echo
+          echo "========================================"
+          echo "BH POSTA MONITOR FINISHED"
+          echo "========================================"
+
+          if [ "${{ steps.monitor.outcome }}" = "success" ]; then
+            echo "Monitor status: SUCCESS"
+          else
+            echo "Monitor status: FAILED"
+          fi
+
+          echo "========================================"
