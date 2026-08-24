@@ -1,4 +1,4 @@
-```yaml
+yaml
 name: Monitor BH Posta Countries
 
 on:
@@ -202,4 +202,3 @@ jobs:
           git commit -m "Update international postcard country lists"
 
           git push
-```
