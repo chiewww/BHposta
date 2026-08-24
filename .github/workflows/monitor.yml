@@ -16,44 +16,126 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------
+      # Check out repository
+      # ------------------------------------------------------
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------
+      # Set up Python
+      # ------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
+      # ------------------------------------------------------
+      # Install Python dependencies
+      # ------------------------------------------------------
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests beautifulsoup4
+          python -m pip install playwright
 
-      - name: Fetch Dopisnica country list
+      # ------------------------------------------------------
+      # Install Chromium + required Linux dependencies
+      # ------------------------------------------------------
+      - name: Install Playwright Chromium
+        run: |
+          python -m playwright install --with-deps chromium
+
+      # ------------------------------------------------------
+      # Run BH Posta monitor
+      # ------------------------------------------------------
+      - name: Monitor BH Posta countries
         run: |
           python monitor.py
 
+      # ------------------------------------------------------
+      # Show generated files
+      # ------------------------------------------------------
+      - name: Show monitor results
+        run: |
+          echo "========================================"
+          echo "AVAILABLE COUNTRIES"
+          echo "========================================"
+          if [ -f available_countries.txt ]; then
+            cat available_countries.txt
+          else
+            echo "available_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "SUSPENDED COUNTRIES"
+          echo "========================================"
+          if [ -f suspended_countries.txt ]; then
+            cat suspended_countries.txt
+          else
+            echo "suspended_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "UNKNOWN COUNTRIES"
+          echo "========================================"
+          if [ -f unknown_countries.txt ]; then
+            cat unknown_countries.txt
+          else
+            echo "unknown_countries.txt not found"
+          fi
+
+          echo
+          echo "========================================"
+          echo "ERROR COUNTRIES"
+          echo "========================================"
+          if [ -f error_countries.txt ]; then
+            cat error_countries.txt
+          else
+            echo "error_countries.txt not found"
+          fi
+
+      # ------------------------------------------------------
+      # Check whether monitored files changed
+      # ------------------------------------------------------
       - name: Check for changes
         id: changes
         run: |
-          if git diff --quiet -- countries.txt; then
+          if git diff --quiet -- \
+            available_countries.txt \
+            suspended_countries.txt \
+            unknown_countries.txt \
+            error_countries.txt
+          then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No changes detected."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Changes detected."
             echo
-            git diff -- countries.txt
+            git diff -- \
+              available_countries.txt \
+              suspended_countries.txt \
+              unknown_countries.txt \
+              error_countries.txt
           fi
 
-      - name: Commit changed country list
+      # ------------------------------------------------------
+      # Commit changed country lists
+      # ------------------------------------------------------
+      - name: Commit changed country lists
         if: steps.changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add countries.txt
+          git add \
+            available_countries.txt \
+            suspended_countries.txt \
+            unknown_countries.txt \
+            error_countries.txt
 
-          git commit -m "Update international postcard country list"
+          git commit -m "Update international postcard country lists"
 
           git push
