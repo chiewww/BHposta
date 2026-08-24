@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from pathlib import Path
 import sys
+import urllib3
 
 
 URL = "https://www.posta.ba/kalkulator-cijena/"
@@ -23,6 +24,14 @@ HEADERS = {
     "Accept-Language": "bs-BA,bs;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
+# The posta.ba server currently presents a certificate chain
+# that GitHub's Python SSL environment does not accept.
+# Disable the warning because certificate verification is
+# intentionally disabled for this public-page request.
+urllib3.disable_warnings(
+    urllib3.exceptions.InsecureRequestWarning
+)
+
 
 def fetch_page():
     print(f"Fetching: {URL}")
@@ -31,6 +40,7 @@ def fetch_page():
         URL,
         headers=HEADERS,
         timeout=60,
+        verify=False,
     )
 
     response.raise_for_status()
@@ -44,8 +54,7 @@ def fetch_page():
 def extract_countries(html):
     soup = BeautifulSoup(html, "html.parser")
 
-    # This is the country dropdown identified from the HTML
-    # provided from the website.
+    # Country dropdown identified from the HTML provided.
     country_select = soup.find(
         "select",
         id="ddlMeDoOdrediste"
@@ -67,11 +76,13 @@ def extract_countries(html):
 
     countries = []
 
+    # IMPORTANT:
+    # Do not sort this list.
+    # The order is kept exactly as it appears on the website.
     for option in options:
         value = option.get("value", "")
         name = option.get_text(strip=True)
 
-        # Ignore empty options.
         if not name:
             continue
 
@@ -88,9 +99,7 @@ def extract_countries(html):
 
 
 def write_output(countries):
-    # Keep the exact order from the website.
-    # Each line contains the original option value and
-    # the country name.
+    # Preserve the exact order from the website.
     lines = []
 
     for value, name in countries:
@@ -112,7 +121,9 @@ def write_output(countries):
     print("=" * 70)
 
     for value, name in countries:
-        print(f'<option value="{value}">{name}</option>')
+        print(
+            f'<option value="{value}">{name}</option>'
+        )
 
     print("=" * 70)
 
