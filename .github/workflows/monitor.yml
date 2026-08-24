@@ -36,7 +36,14 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests beautifulsoup4
+          python -m pip install playwright requests beautifulsoup4
+
+      # ------------------------------------------------------
+      # Install Chromium and Linux dependencies
+      # ------------------------------------------------------
+      - name: Install Playwright Chromium
+        run: |
+          python -m playwright install --with-deps chromium
 
       # ------------------------------------------------------
       # Run BH Posta monitor
