@@ -16,55 +16,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       # ------------------------------------------------------
       # Check out repository
       # ------------------------------------------------------
-
       - name: Check out repository
         uses: actions/checkout@v4
 
       # ------------------------------------------------------
       # Set up Python
       # ------------------------------------------------------
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
       # ------------------------------------------------------
-      # Install Playwright
+      # Install Python dependencies
       # ------------------------------------------------------
-
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install playwright
+          python -m pip install requests beautifulsoup4
 
       # ------------------------------------------------------
-      # Install Chromium and Linux dependencies
+      # Run BH Posta monitor
       # ------------------------------------------------------
-
-      - name: Install Playwright Chromium
-        run: |
-          python -m playwright install --with-deps chromium
-
-      # ------------------------------------------------------
-      # Run monitor
-      # ------------------------------------------------------
-
       - name: Monitor BH Posta countries
         run: |
           python monitor.py
 
       # ------------------------------------------------------
-      # Show results
+      # Show generated files
       # ------------------------------------------------------
-
       - name: Show monitor results
+        if: always()
         run: |
-
           echo "========================================"
           echo "AVAILABLE COUNTRIES"
           echo "========================================"
@@ -109,47 +95,52 @@ jobs:
           fi
 
       # ------------------------------------------------------
-      # Check for changes
+      # Check whether monitored files changed
       # ------------------------------------------------------
-
       - name: Check for changes
         id: changes
+        if: always()
         run: |
+          changed=false
 
-          if git diff --quiet -- \
+          for file in \
             available_countries.txt \
             suspended_countries.txt \
             unknown_countries.txt \
             error_countries.txt
-          then
+          do
+            if [ -f "$file" ]; then
+              if ! git diff --quiet -- "$file"; then
+                changed=true
+              fi
+            fi
+          done
 
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-
-            echo "No changes detected."
-
-          else
-
+          if [ "$changed" = "true" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-
             echo "Changes detected."
 
             echo
+            echo "========================================"
+            echo "DIFF"
+            echo "========================================"
+
             git diff -- \
               available_countries.txt \
               suspended_countries.txt \
               unknown_countries.txt \
-              error_countries.txt
-
+              error_countries.txt || true
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected."
           fi
 
       # ------------------------------------------------------
-      # Commit changed lists
+      # Commit changed country lists
       # ------------------------------------------------------
-
       - name: Commit changed country lists
         if: steps.changes.outputs.changed == 'true'
         run: |
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -159,7 +150,6 @@ jobs:
             unknown_countries.txt \
             error_countries.txt
 
-          git commit \
-            -m "Update international postcard country lists"
+          git commit -m "Update international postcard country lists"
 
           git push
