@@ -7,7 +7,10 @@ import requests
 from bs4 import BeautifulSoup
 
 
-URL = "https://bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/Default.aspx"
+URL = (
+    "https://bhpwebout.posta.ba/"
+    "KalkulatorCijena_WEB_app/Bos/Default.aspx"
+)
 
 AVAILABLE_FILE = Path("available_countries.txt")
 SUSPENDED_FILE = Path("suspended_countries.txt")
@@ -24,41 +27,57 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/139.0 Safari/537.36"
     ),
+    "Accept": (
+        "text/html,application/xhtml+xml,"
+        "application/xml;q=0.9,image/avif,image/webp,"
+        "*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
 # ============================================================
-# Basic helpers
+# GENERAL HELPERS
 # ============================================================
 
-def save_debug(filename, content):
-    try:
-        Path(filename).write_text(
-            content,
-            encoding="utf-8",
-            errors="ignore",
-        )
-        print(f"DEBUG: Saved {filename}")
-    except Exception as exc:
-        print(f"DEBUG: Could not save {filename}: {exc}")
+def save_debug(name, content):
+    Path(name).write_text(
+        content,
+        encoding="utf-8",
+    )
+
+    print(
+        f"DEBUG: Saved {name}"
+    )
 
 
 def get_hidden_fields(html):
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
 
-    data = {}
+    result = {}
 
-    for element in soup.select("input[type='hidden']"):
+    for element in soup.select(
+        "input[type='hidden']"
+    ):
         name = element.get("name")
 
         if name:
-            data[name] = element.get("value", "")
+            result[name] = element.get(
+                "value",
+                "",
+            )
 
-    return data
+    return result
 
 
 def parse_countries(html):
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
 
     select = soup.find(
         "select",
@@ -68,145 +87,290 @@ def parse_countries(html):
     if not select:
         return []
 
-    result = []
+    countries = []
 
-    for option in select.find_all("option"):
+    for option in select.find_all(
+        "option"
+    ):
         value = option.get("value")
-        name = option.get_text(strip=True)
+        name = option.get_text(
+            " ",
+            strip=True,
+        )
 
         if value and name:
-            result.append((value, name))
+            countries.append(
+                (
+                    value,
+                    name,
+                )
+            )
 
-    return result
+    return countries
 
 
-def has_country_selector(html):
-    return "ddlMeDoOdrediste" in html
+# ============================================================
+# DEVEXPRESS / PAGE INSPECTION
+# ============================================================
 
+def inspect_tab_control(html):
+    """
+    Inspect the actual ASPxTabControl1 markup and scripts.
 
-def get_text(html):
-    return BeautifulSoup(
-        unescape(html),
+    We do not assume that __EVENTARGUMENT='1' is sufficient.
+    """
+
+    soup = BeautifulSoup(
+        html,
         "html.parser",
-    ).get_text(
-        " ",
-        strip=True,
     )
 
+    print(
+        "DEBUG: Inspecting DevExpress tab control..."
+    )
+
+    elements = soup.find_all(
+        id=re.compile(
+            r"ASPxTabControl1",
+            re.I,
+        )
+    )
+
+    print(
+        f"DEBUG: Found {len(elements)} "
+        "elements related to ASPxTabControl1."
+    )
+
+    for element in elements:
+
+        print(
+            "DEBUG TAB:",
+            element.name,
+            "id=",
+            element.get("id"),
+            "name=",
+            element.get("name"),
+            "class=",
+            element.get("class"),
+        )
+
+        # Print useful attributes.
+        for key, value in element.attrs.items():
+
+            if key.lower() in {
+                "id",
+                "name",
+                "class",
+                "onclick",
+                "onchange",
+                "clientinstance",
+                "data",
+            }:
+                print(
+                    f"DEBUG TAB ATTR {key}: {value}"
+                )
+
+    # --------------------------------------------------------
+    # Search scripts for ASPxTabControl1.
+    # --------------------------------------------------------
+
+    matches = []
+
+    for script in soup.find_all("script"):
+
+        text = script.string
+
+        if not text:
+            text = script.get_text()
+
+        if not text:
+            continue
+
+        if (
+            "ASPxTabControl1" in text
+            or "ASPxClientTabControl" in text
+            or "SetActiveTab" in text
+            or "SetActiveTabIndex" in text
+        ):
+
+            matches.append(text)
+
+    print(
+        f"DEBUG: Found {len(matches)} "
+        "script blocks related to tab control."
+    )
+
+    for index, text in enumerate(
+        matches,
+        start=1,
+    ):
+
+        filename = (
+            f"debug_tab_script_{index}.txt"
+        )
+
+        save_debug(
+            filename,
+            text,
+        )
+
+        # Print only useful lines.
+        for line in text.splitlines():
+
+            if (
+                "ASPxTabControl1" in line
+                or "SetActiveTab" in line
+                or "TabClick" in line
+                or "tab" in line.lower()
+                and (
+                    "ASPx" in line
+                    or "callback" in line.lower()
+                    or "postback" in line.lower()
+                )
+            ):
+
+                print(
+                    "DEBUG SCRIPT:",
+                    line[:500],
+                )
+
 
 # ============================================================
-# ASP.NET AJAX parser
+# AJAX RESPONSE PARSER
 # ============================================================
 
-def parse_aspnet_ajax_response(response_text):
+def parse_ajax_delta(text):
     """
-    Parse an ASP.NET AJAX PageRequestManager delta response.
+    Parse ASP.NET PageRequestManager response records.
 
-    Example:
-
-        1|#||4|6967|updatePanel|UpdatePanel1|<html>...
-        6|hiddenField|__VIEWSTATE|...
-        ...
-
-    Returns:
-
-        {
-            "panels": {...},
-            "hidden": {...},
-            "raw": response_text,
-        }
+    We specifically collect updatePanel and hiddenField
+    records.
     """
 
     result = {
         "panels": {},
-        "hidden": {},
-        "raw": response_text,
+        "hidden_fields": {},
     }
 
-    if not response_text:
+    if not text:
         return result
 
-    if "|updatePanel|" not in response_text and "|hiddenField|" not in response_text:
-        return result
+    position = 0
+    total = len(text)
 
-    pos = 0
-    length = len(response_text)
+    while position < total:
 
-    while pos < length:
-
-        # Find next record type.
-        match = re.search(
-            r"(?:(?<=^)|(?<=\|))(\d+)\|([^|]*)\|",
-            response_text[pos:],
+        first_pipe = text.find(
+            "|",
+            position,
         )
 
-        if not match:
+        if first_pipe == -1:
             break
 
-        start = pos + match.start()
-        record_start = pos + match.end()
+        length_text = text[
+            position:first_pipe
+        ]
 
-        try:
-            record_length = int(match.group(1))
-        except ValueError:
-            pos = record_start
+        if not length_text.isdigit():
+
+            position += 1
             continue
 
-        record_type = match.group(2)
+        record_length = int(
+            length_text
+        )
 
-        value_start = record_start
-        value_end = value_start + record_length
+        record_type_start = (
+            first_pipe + 1
+        )
 
-        if value_end > length:
+        second_pipe = text.find(
+            "|",
+            record_type_start,
+        )
+
+        if second_pipe == -1:
             break
 
-        value = response_text[value_start:value_end]
+        record_type = text[
+            record_type_start:second_pipe
+        ]
+
+        content_start = (
+            second_pipe + 1
+        )
+
+        content_end = (
+            content_start + record_length
+        )
+
+        if content_end > total:
+            break
+
+        content = text[
+            content_start:content_end
+        ]
 
         if record_type == "updatePanel":
 
-            # updatePanel records have:
-            #
-            # updatePanel|panelID|content
-            #
-            # but depending on the parser state, panel ID may
-            # appear in the record value.
+            separator = content.find(
+                "|"
+            )
 
-            if "|" in value:
-                panel_id, content = value.split(
-                    "|",
-                    1,
-                )
-                result["panels"][panel_id] = content
+            if separator >= 0:
+
+                panel_id = content[
+                    :separator
+                ]
+
+                panel_content = content[
+                    separator + 1:
+                ]
+
+                result[
+                    "panels"
+                ][panel_id] = panel_content
 
         elif record_type == "hiddenField":
 
-            if "|" in value:
-                name, field_value = value.split(
-                    "|",
-                    1,
-                )
-                result["hidden"][name] = field_value
+            separator = content.find(
+                "|"
+            )
 
-        pos = value_end
+            if separator >= 0:
+
+                name = content[
+                    :separator
+                ]
+
+                value = content[
+                    separator + 1:
+                ]
+
+                result[
+                    "hidden_fields"
+                ][name] = value
+
+        position = content_end
 
     return result
 
 
-def apply_ajax_response(old_html, response_text):
+def merge_ajax_response(
+    original_html,
+    ajax_text,
+):
     """
-    Apply ASP.NET AJAX changes to our local HTML representation.
+    Merge an ASP.NET AJAX response into the
+    original full page.
 
-    Hidden fields returned by the server are merged into the old
-    document.
-
-    UpdatePanel content is replaced where possible.
-
-    If the returned panel does not contain the requested control,
-    the old document is retained for that part.
+    Never replace the full document with an AJAX
+    response.
     """
 
-    parsed = parse_aspnet_ajax_response(
-        response_text
+    parsed = parse_ajax_delta(
+        ajax_text
     )
 
     print(
@@ -215,106 +379,98 @@ def apply_ajax_response(old_html, response_text):
         "bytes of UpdatePanel content."
     )
 
-    if parsed["hidden"]:
-        print(
-            f"DEBUG: Returned hidden fields: "
-            f"{len(parsed['hidden'])}"
-        )
+    print(
+        "DEBUG: Returned hidden fields: "
+        f"{len(parsed['hidden_fields'])}"
+    )
 
-    # --------------------------------------------------------
-    # No useful AJAX response
-    # --------------------------------------------------------
+    if not parsed["panels"]:
 
-    if not parsed["panels"] and not parsed["hidden"]:
-
-        print(
-            "DEBUG: AJAX response contained no usable "
-            "UpdatePanel/hidden-field records."
-        )
-
-        return old_html
+        return original_html
 
     soup = BeautifulSoup(
-        old_html,
+        original_html,
         "html.parser",
     )
 
-    # --------------------------------------------------------
-    # Replace/update hidden fields
-    # --------------------------------------------------------
-
-    for name, value in parsed["hidden"].items():
-
-        element = soup.find(
-            "input",
-            {
-                "type": "hidden",
-                "name": name,
-            },
-        )
-
-        if element:
-            element["value"] = value
-
-        else:
-            new_element = soup.new_tag(
-                "input",
-                type="hidden",
-            )
-
-            new_element["name"] = name
-            new_element["value"] = value
-
-            form = soup.find("form")
-
-            if form:
-                form.append(new_element)
-
-    # --------------------------------------------------------
-    # Update panels
-    # --------------------------------------------------------
-
-    for panel_id, content in parsed["panels"].items():
+    for panel_id, panel_html in (
+        parsed["panels"].items()
+    ):
 
         panel = soup.find(
-            id=panel_id,
+            id=panel_id
         )
 
         if not panel:
+
+            print(
+                f"DEBUG: Panel {panel_id} "
+                "does not exist in original page."
+            )
+
             continue
 
         replacement = BeautifulSoup(
-            content,
+            panel_html,
             "html.parser",
         )
 
         panel.clear()
 
-        for child in replacement.contents:
+        for child in list(
+            replacement.contents
+        ):
             panel.append(child)
+
+    # Update hidden fields.
+    for name, value in (
+        parsed["hidden_fields"].items()
+    ):
+
+        element = soup.find(
+            "input",
+            attrs={
+                "name": name,
+            },
+        )
+
+        if not element:
+
+            element = soup.find(
+                "input",
+                id=name,
+            )
+
+        if element:
+
+            element["value"] = value
 
     return str(soup)
 
 
 # ============================================================
-# ASP.NET POST helpers
+# POST HELPERS
 # ============================================================
 
 def post_async(
     session,
     html,
     event_target,
-    extra=None,
     event_argument="",
+    extra=None,
 ):
-    """
-    ASP.NET UpdatePanel asynchronous postback.
-    """
+    data = get_hidden_fields(
+        html
+    )
 
-    data = get_hidden_fields(html)
+    data["__EVENTTARGET"] = (
+        event_target
+    )
 
-    data["__EVENTTARGET"] = event_target
-    data["__EVENTARGUMENT"] = event_argument
+    data["__EVENTARGUMENT"] = (
+        event_argument
+    )
+
     data["__ASYNCPOST"] = "true"
 
     if extra:
@@ -324,11 +480,8 @@ def post_async(
         **HEADERS,
         "X-Requested-With": "XMLHttpRequest",
         "X-MicrosoftAjax": "Delta=true",
-        "Content-Type": (
-            "application/x-www-form-urlencoded; "
-            "charset=UTF-8"
-        ),
         "Referer": URL,
+        "Accept": "*/*",
     }
 
     response = session.post(
@@ -340,7 +493,7 @@ def post_async(
 
     response.raise_for_status()
 
-    return response.text
+    return response
 
 
 def post_normal(
@@ -348,11 +501,9 @@ def post_normal(
     html,
     extra,
 ):
-    """
-    Normal ASP.NET form POST.
-    """
-
-    data = get_hidden_fields(html)
+    data = get_hidden_fields(
+        html
+    )
 
     data.update(extra)
 
@@ -370,20 +521,19 @@ def post_normal(
 
     response.raise_for_status()
 
-    return response.text
+    return response
 
 
 # ============================================================
-# DevExpress inspection
+# FIND DEVEXPRESS CLIENT CONFIGURATION
 # ============================================================
 
-def inspect_devexpress_tabs(html):
+def find_tab_configuration(html):
     """
-    Print useful information about the DevExpress tab control.
+    Search page JavaScript for the actual DevExpress
+    initialization/configuration of ASPxTabControl1.
 
-    This is intentionally diagnostic because the server response
-    shows that the tab is not behaving like a normal ASP.NET
-    Button.
+    Returns useful strings for diagnostics.
     """
 
     soup = BeautifulSoup(
@@ -391,230 +541,260 @@ def inspect_devexpress_tabs(html):
         "html.parser",
     )
 
-    print()
-    print("DEBUG: Inspecting DevExpress tab control...")
+    results = []
 
-    candidates = []
-
-    for element in soup.find_all(
-        lambda tag: (
-            tag.name in ("div", "table", "span", "input")
-            and (
-                "ASPxTabControl1" in str(tag.get("id", ""))
-                or "ASPxTabControl1" in str(tag.get("name", ""))
-                or "ASPxTabControl1" in str(tag.get("class", ""))
-            )
-        )
+    for script in soup.find_all(
+        "script"
     ):
-        candidates.append(element)
 
-    print(
-        f"DEBUG: Found {len(candidates)} elements related "
-        "to ASPxTabControl1."
-    )
+        text = script.get_text()
 
-    for element in candidates[:20]:
-
-        print(
-            "DEBUG TAB:",
-            element.name,
-            "id=",
-            element.get("id"),
-            "name=",
-            element.get("name"),
-            "class=",
-            element.get("class"),
-        )
-
-    # Look for ASPx hidden state fields.
-    for element in soup.find_all("input"):
-
-        name = element.get("name", "")
-        element_id = element.get("id", "")
+        if not text:
+            continue
 
         if (
-            "ASPxTab" in name
-            or "ASPxTab" in element_id
-            or "DX" in name
-            or "DX" in element_id
+            "ASPxTabControl1" in text
+            or "SetActiveTabIndex" in text
+            or "SetActiveTab(" in text
         ):
-            print(
-                "DEBUG DEVEXPRESS INPUT:",
-                name or element_id,
-                "=",
-                element.get("value", ""),
-            )
 
-    print()
+            results.append(text)
+
+    return results
 
 
 # ============================================================
-# International tab activation
+# INTERNATIONAL TAB
 # ============================================================
 
 def activate_international(
     session,
     html,
 ):
-    """
-    Activate Međunarodni promet.
-
-    Important:
-    The previous implementation assumed that the UpdatePanel
-    response itself must contain ddlMeDoOdrediste.
-
-    That assumption is false for this page.
-
-    The server is returning UpdatePanel1, but the international
-    controls are apparently not represented by that panel in
-    the callback response.
-
-    We therefore try several ways of activating the tab and
-    preserve useful diagnostic information instead of blindly
-    replacing the whole document with the AJAX response.
-    """
-
     print(
         "Activating Međunarodni promet..."
     )
 
-    if has_country_selector(html):
+    if "ddlMeDoOdrediste" in html:
 
         print(
-            "International destination selector is already "
-            "present."
+            "International selector already present."
         )
 
         return html
 
-    inspect_devexpress_tabs(html)
-
-    original_html = html
-
     # --------------------------------------------------------
-    # Attempt 1:
-    # ASP.NET async postback using ASPxTabControl1
+    # Save original page.
     # --------------------------------------------------------
 
-    attempts = [
-        (
-            "ASPxTabControl1 argument=1",
-            "ASPxTabControl1",
-            "1",
-        ),
-        (
-            "ASPxTabControl1 argument=1|",
-            "ASPxTabControl1",
-            "1|",
-        ),
-        (
-            "ASPxTabControl1 argument=0|1",
-            "ASPxTabControl1",
-            "0|1",
-        ),
-    ]
+    save_debug(
+        "debug_original_page.html",
+        html,
+    )
 
-    for description, target, argument in attempts:
+    inspect_tab_control(
+        html
+    )
+
+    scripts = find_tab_configuration(
+        html
+    )
+
+    print(
+        f"DEBUG: Relevant DevExpress scripts: "
+        f"{len(scripts)}"
+    )
+
+    # --------------------------------------------------------
+    # Extract possible tab indices/keys from the scripts.
+    # --------------------------------------------------------
+
+    candidates = []
+
+    for script in scripts:
+
+        # Common SetActiveTabIndex(1)
+        for match in re.finditer(
+            r"SetActiveTabIndex\s*\(\s*(\d+)\s*\)",
+            script,
+            re.I,
+        ):
+
+            candidates.append(
+                ("index", match.group(1))
+            )
+
+        # Common SetActiveTab(...)
+        for match in re.finditer(
+            r"SetActiveTab\s*\(\s*([^)]+)\)",
+            script,
+            re.I,
+        ):
+
+            candidates.append(
+                ("tab", match.group(1).strip())
+            )
+
+    # Always retain the known international index.
+    candidates.append(
+        ("index", "1")
+    )
+
+    # Deduplicate.
+    seen = set()
+    unique_candidates = []
+
+    for candidate in candidates:
+
+        if candidate in seen:
+            continue
+
+        seen.add(candidate)
+        unique_candidates.append(
+            candidate
+        )
+
+    print(
+        "DEBUG: Tab candidates:",
+        unique_candidates,
+    )
+
+    # --------------------------------------------------------
+    # Strategy 1:
+    #
+    # ASP.NET AJAX postback with ASPxTabControl1.
+    # --------------------------------------------------------
+
+    for candidate_type, candidate in (
+        unique_candidates
+    ):
 
         print(
-            f"Trying {description}..."
+            f"Trying ASPxTabControl1 "
+            f"{candidate_type}={candidate}..."
         )
 
         try:
 
-            response_text = post_async(
+            response = post_async(
                 session,
                 html,
-                target,
-                event_argument=argument,
+                "ASPxTabControl1",
+                candidate,
+            )
+
+            response_text = (
+                response.text
             )
 
             print(
-                f"DEBUG: {description} response size: "
+                "DEBUG: Response size: "
                 f"{len(response_text):,} bytes"
             )
 
+            filename_candidate = re.sub(
+                r"[^A-Za-z0-9_.-]",
+                "_",
+                candidate,
+            )
+
             save_debug(
-                "debug_international_"
-                + re.sub(
-                    r"[^a-zA-Z0-9]+",
-                    "_",
-                    description,
-                )
-                + ".txt",
+                (
+                    "debug_international_"
+                    f"ASPxTabControl1_"
+                    f"{candidate_type}_"
+                    f"{filename_candidate}.txt"
+                ),
                 response_text,
             )
 
-            # ------------------------------------------------
-            # The crucial change:
-            #
-            # Do NOT replace the entire page with the AJAX
-            # response.
-            # ------------------------------------------------
-
-            candidate = apply_ajax_response(
-                html,
-                response_text,
-            )
-
-            if has_country_selector(candidate):
+            # Direct response.
+            if (
+                "ddlMeDoOdrediste"
+                in response_text
+            ):
 
                 print(
-                    "International destination selector "
-                    "appeared after AJAX response."
+                    "DEBUG: Country selector "
+                    "returned directly."
                 )
 
-                return candidate
+                return response_text
 
-            # Keep the candidate only if it contains more
-            # useful page state than the original.
-            html = candidate
+            # AJAX merge.
+            if "|updatePanel|" in (
+                response_text
+            ):
+
+                merged = merge_ajax_response(
+                    html,
+                    response_text,
+                )
+
+                if (
+                    "ddlMeDoOdrediste"
+                    in merged
+                ):
+
+                    print(
+                        "International tab activated "
+                        "through AJAX merge."
+                    )
+
+                    return merged
 
         except Exception as exc:
 
             print(
-                f"WARNING: {description} failed: {exc}"
+                "DEBUG: Candidate failed:",
+                exc,
             )
 
     # --------------------------------------------------------
-    # Attempt 2:
-    # Browser-style ASP.NET postback fields
+    # Strategy 2:
+    #
+    # Try common DevExpress callback argument forms.
+    #
+    # These are deliberately attempted only after the actual
+    # page configuration has been inspected.
     # --------------------------------------------------------
 
-    print(
-        "Trying ASP.NET tab fallback..."
-    )
-
-    tab_fields = [
-        {
-            "__EVENTTARGET": "ASPxTabControl1",
-            "__EVENTARGUMENT": "1",
-        },
-        {
-            "__EVENTTARGET": "ASPxTabControl1",
-            "__EVENTARGUMENT": "1|",
-        },
-        {
-            "__EVENTTARGET": "ASPxTabControl1",
-            "__EVENTARGUMENT": "0|1",
-        },
+    callback_arguments = [
+        "1",
+        "1|",
+        "0|1",
+        "C1",
+        "1|0",
     ]
 
-    for extra in tab_fields:
+    for argument in callback_arguments:
+
+        print(
+            "Trying DevExpress callback "
+            f"parameter='{argument}'..."
+        )
 
         try:
 
             data = get_hidden_fields(
-                original_html
+                html
             )
 
-            data.update(extra)
+            data["__CALLBACKID"] = (
+                "ASPxTabControl1"
+            )
+
+            data["__CALLBACKPARAM"] = (
+                argument
+            )
 
             headers = {
                 **HEADERS,
-                "X-Requested-With": "XMLHttpRequest",
-                "X-MicrosoftAjax": "Delta=true",
+                "X-Requested-With":
+                    "XMLHttpRequest",
                 "Referer": URL,
+                "Content-Type":
+                    "application/x-www-form-urlencoded",
             }
 
             response = session.post(
@@ -626,36 +806,46 @@ def activate_international(
 
             response.raise_for_status()
 
-            response_text = response.text
+            text = response.text
 
             print(
-                "DEBUG: ASP.NET tab fallback response "
-                f"size: {len(response_text):,} bytes"
+                "DEBUG: DevExpress callback "
+                f"response size: {len(text):,}"
             )
 
-            candidate = apply_ajax_response(
-                original_html,
-                response_text,
-            )
-
-            if has_country_selector(candidate):
-
-                print(
-                    "International selector found after "
-                    "ASP.NET fallback."
+            filename = (
+                "debug_devexpress_callback_"
+                + re.sub(
+                    r"[^A-Za-z0-9_.-]",
+                    "_",
+                    argument,
                 )
+                + ".txt"
+            )
 
-                return candidate
+            save_debug(
+                filename,
+                text,
+            )
+
+            if (
+                "ddlMeDoOdrediste"
+                in text
+            ):
+
+                return text
 
         except Exception as exc:
 
             print(
-                f"WARNING: ASP.NET fallback failed: {exc}"
+                "DEBUG: Callback failed:",
+                exc,
             )
 
     # --------------------------------------------------------
-    # Attempt 3:
-    # Normal POST with tab state
+    # Strategy 3:
+    #
+    # Normal POST preserving the complete original form.
     # --------------------------------------------------------
 
     print(
@@ -664,56 +854,45 @@ def activate_international(
 
     try:
 
-        data = get_hidden_fields(
-            original_html
-        )
-
-        data["__EVENTTARGET"] = (
-            "ASPxTabControl1"
-        )
-        data["__EVENTARGUMENT"] = "1"
-
-        response = session.post(
-            URL,
-            data=data,
-            headers={
-                **HEADERS,
-                "Referer": URL,
+        response = post_normal(
+            session,
+            html,
+            {
+                "__EVENTTARGET":
+                    "ASPxTabControl1",
+                "__EVENTARGUMENT":
+                    "1",
             },
-            timeout=90,
         )
 
-        response.raise_for_status()
-
-        candidate = response.text
+        text = response.text
 
         print(
             "DEBUG: Normal POST response size: "
-            f"{len(candidate):,} bytes"
+            f"{len(text):,} bytes"
         )
 
         save_debug(
             "debug_international_normal_post.html",
-            candidate,
+            text,
         )
 
-        if has_country_selector(candidate):
+        if (
+            "ddlMeDoOdrediste"
+            in text
+        ):
 
-            print(
-                "International selector found after "
-                "normal POST."
-            )
-
-            return candidate
+            return text
 
     except Exception as exc:
 
         print(
-            f"Normal POST fallback failed: {exc}"
+            "DEBUG: Normal POST failed:",
+            exc,
         )
 
     # --------------------------------------------------------
-    # Final diagnostic
+    # Final diagnostics.
     # --------------------------------------------------------
 
     print(
@@ -721,55 +900,51 @@ def activate_international(
     )
 
     print(
-        f"DEBUG: Original page size: "
-        f"{len(original_html):,} bytes"
+        "DEBUG: Original page size: "
+        f"{len(html):,} bytes"
     )
 
-    save_debug(
-        "debug_original_page.html",
-        original_html,
+    print(
+        "DEBUG: Relevant DevExpress script "
+        f"count: {len(scripts)}"
     )
 
     raise RuntimeError(
         "Could not activate Međunarodni promet. "
-        "The server accepts the AJAX request but does not "
-        "return ddlMeDoOdrediste. "
-        "See debug_original_page.html and "
-        "debug_international_*.txt."
+        "The server did not return "
+        "ddlMeDoOdrediste for the discovered "
+        "tab-postback/callback methods."
     )
 
 
 # ============================================================
-# Dopisnica
+# DOPISNICA
 # ============================================================
 
 def activate_dopisnica(
     session,
     html,
 ):
-    """
-    Select Dopisnica.
-    """
-
-    if not has_country_selector(html):
+    if "ddlMeDoOdrediste" not in html:
 
         raise RuntimeError(
-            "Country selector is missing before Dopisnica."
+            "Country selector is missing before "
+            "Dopisnica."
         )
 
     print(
-        "Dopisnica selected."
+        "Selecting Dopisnica..."
     )
 
     if "Dopisnica_Aktivna.png" in html:
 
         print(
-            "Dopisnica already active."
+            "Dopisnica already selected."
         )
 
         return html
 
-    html = post_normal(
+    response = post_normal(
         session,
         html,
         {
@@ -778,28 +953,34 @@ def activate_dopisnica(
         },
     )
 
-    if "Dopisnica_Aktivna.png" not in html:
+    response.raise_for_status()
+
+    result = response.text
+
+    if "Dopisnica_Aktivna.png" in result:
 
         print(
-            "WARNING: Dopisnica_Aktivna.png was not "
-            "found after clicking ImageButton8."
+            "Dopisnica selected."
         )
 
-    return html
+    else:
+
+        print(
+            "WARNING: Dopisnica_Aktivna.png "
+            "not found after selection."
+        )
+
+    return result
 
 
 # ============================================================
-# Airmail
+# AIRMAIL
 # ============================================================
 
 def activate_airmail(
     session,
     html,
 ):
-    """
-    Enable chbMeDoAvionski.
-    """
-
     soup = BeautifulSoup(
         html,
         "html.parser",
@@ -816,7 +997,9 @@ def activate_airmail(
             "Could not find chbMeDoAvionski."
         )
 
-    if checkbox.has_attr("checked"):
+    if checkbox.has_attr(
+        "checked"
+    ):
 
         print(
             "Avionski prijenos already enabled."
@@ -828,23 +1011,38 @@ def activate_airmail(
         "Enabling Avionski prijenos..."
     )
 
-    html = post_async(
+    # Keep original full document.
+    original_html = html
+
+    response = post_async(
         session,
         html,
         "chbMeDoAvionski",
+        "",
         {
             "chbMeDoAvionski": "on",
         },
     )
 
-    # AJAX responses must be merged with the previous page.
-    merged = apply_ajax_response(
-        html,
-        html,
-    )
+    response_text = response.text
+
+    # --------------------------------------------------------
+    # AJAX response.
+    # --------------------------------------------------------
+
+    if "|updatePanel|" in response_text:
+
+        html = merge_ajax_response(
+            original_html,
+            response_text,
+        )
+
+    else:
+
+        html = response_text
 
     soup = BeautifulSoup(
-        merged,
+        html,
         "html.parser",
     )
 
@@ -856,22 +1054,31 @@ def activate_airmail(
     if not checkbox:
 
         raise RuntimeError(
-            "chbMeDoAvionski disappeared after "
-            "the AJAX postback."
+            "chbMeDoAvionski disappeared "
+            "after the postback."
         )
 
-    if not checkbox.has_attr("checked"):
+    if checkbox.has_attr(
+        "checked"
+    ):
 
         print(
-            "WARNING: Server did not mark "
-            "chbMeDoAvionski checked."
+            "Avionski prijenos enabled."
         )
 
-    return merged
+    else:
+
+        print(
+            "WARNING: Avionski prijenos "
+            "was returned without an explicit "
+            "checked attribute."
+        )
+
+    return html
 
 
 # ============================================================
-# Country selection
+# COUNTRY SELECTION
 # ============================================================
 
 def select_country(
@@ -880,37 +1087,38 @@ def select_country(
     code,
 ):
     """
-    Reproduce:
+    Select destination.
 
-        ddlMeDoOdrediste
-        onchange -> __doPostBack(...)
+    The destination dropdown itself normally causes an
+    ASP.NET AJAX postback.
     """
 
-    response_text = post_async(
+    original_html = html
+
+    response = post_async(
         session,
         html,
         "ddlMeDoOdrediste",
+        "",
         {
             "ddlMeDoOdrediste": code,
         },
     )
 
-    candidate = apply_ajax_response(
-        html,
-        response_text,
-    )
+    response_text = response.text
 
-    # If the response was a normal HTML document instead of
-    # an AJAX delta, use it directly.
-    if "<html" in response_text.lower():
+    if "|updatePanel|" in response_text:
 
-        candidate = response_text
+        return merge_ajax_response(
+            original_html,
+            response_text,
+        )
 
-    return candidate
+    return response_text
 
 
 # ============================================================
-# Calculate
+# CALCULATE
 # ============================================================
 
 def calculate(
@@ -918,28 +1126,28 @@ def calculate(
     html,
     code,
 ):
-    """
-    Calculate 10 g airmail postcard price/status.
-    """
-
-    return post_normal(
+    response = post_normal(
         session,
         html,
         {
             "ddlMeDoOdrediste": code,
             "chbMeDoAvionski": "on",
             "tbxMeDoAvioTezina": WEIGHT,
-            "btnMeDoIzracunaj": "Izračunaj",
+            "btnMeDoIzracunaj":
+                "Izračunaj",
         },
     )
 
+    response.raise_for_status()
+
+    return response.text
+
 
 # ============================================================
-# Result detection
+# RESULT DETECTION
 # ============================================================
 
 def is_suspended(html):
-
     return (
         SUSPENDED_MESSAGE
         in unescape(html)
@@ -947,7 +1155,6 @@ def is_suspended(html):
 
 
 def is_available(html):
-
     text = BeautifulSoup(
         unescape(html),
         "html.parser",
@@ -957,21 +1164,19 @@ def is_available(html):
     )
 
     if "Ukupna cijena" in text:
-
         return True
 
     if re.search(
         r"\b\d+(?:[,.]\d+)?\s*KM\b",
         text,
     ):
-
         return True
 
     return False
 
 
 # ============================================================
-# Main
+# MAIN
 # ============================================================
 
 def main():
@@ -1001,7 +1206,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 1. Međunarodni promet
+    # 1. International traffic
     # --------------------------------------------------------
 
     html = activate_international(
@@ -1019,7 +1224,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 3. Avionski prijenos
+    # 3. Airmail
     # --------------------------------------------------------
 
     html = activate_airmail(
@@ -1028,7 +1233,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 4. Read country list
+    # 4. Countries
     # --------------------------------------------------------
 
     countries = parse_countries(
@@ -1043,18 +1248,20 @@ def main():
         )
 
         raise RuntimeError(
-            "No countries found in ddlMeDoOdrediste."
+            "No countries found in "
+            "ddlMeDoOdrediste."
         )
 
     print(
-        f"Found {len(countries)} destination entries."
+        f"Found {len(countries)} "
+        "destination entries."
     )
 
     available = []
     suspended = []
 
     # --------------------------------------------------------
-    # 5. Test every destination
+    # 5. Test every country
     # --------------------------------------------------------
 
     for index, (code, name) in enumerate(
@@ -1070,14 +1277,12 @@ def main():
 
         try:
 
-            # Select destination.
             selected_html = select_country(
                 session,
                 html,
                 code,
             )
 
-            # Calculate.
             result_html = calculate(
                 session,
                 selected_html,
@@ -1127,7 +1332,7 @@ def main():
         time.sleep(0.5)
 
     # --------------------------------------------------------
-    # 6. Write lists
+    # 6. Write output
     # --------------------------------------------------------
 
     AVAILABLE_FILE.write_text(
@@ -1147,22 +1352,23 @@ def main():
     print()
 
     print(
-        f"Available countries written to: "
-        f"{AVAILABLE_FILE}"
-    )
-
-    print(
-        f"Suspended countries written to: "
-        f"{SUSPENDED_FILE}"
-    )
-
-    print()
-    print(
         f"Available: {len(available)}"
     )
 
     print(
         f"Suspended: {len(suspended)}"
+    )
+
+    print()
+
+    print(
+        "Available countries written to: "
+        f"{AVAILABLE_FILE}"
+    )
+
+    print(
+        "Suspended countries written to: "
+        f"{SUSPENDED_FILE}"
     )
 
 
