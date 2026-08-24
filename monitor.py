@@ -1,636 +1,335 @@
-import os
 import re
+import time
+from pathlib import Path
+from html import unescape
+
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 
-# ============================================================
-# CONFIG
-# ============================================================
 
-CALCULATOR_URL = (
-    "https://bhpwebout.posta.ba/"
-    "KalkulatorCijena_WEB_app/Bos/Default.aspx"
+URL = "https://bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/Default.aspx"
+
+AVAILABLE_FILE = Path("available_countries.txt")
+SUSPENDED_FILE = Path("suspended_countries.txt")
+
+WEIGHT = "10"
+
+SUSPENDED_MESSAGE = (
+    "Prijem pošiljaka se trenutno ne vrši za odabranu državu"
 )
 
-DEBUG_DIR = "debug"
-os.makedirs(DEBUG_DIR, exist_ok=True)
-
-OUTPUT_FILE = os.path.join(
-    DEBUG_DIR,
-    "step10_international.html"
-)
-
-# ============================================================
-# SESSION
-# ============================================================
-
-session = requests.Session()
-
-session.headers.update({
+HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/139.0.0.0 Safari/537.36"
+        "Chrome/139.0 Safari/537.36"
     ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;"
-        "q=0.9,image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "bs-BA,bs;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://www.posta.ba/kalkulator-cijena/",
-})
+}
 
-# ============================================================
-# STEP 1: LOAD CALCULATOR
-# ============================================================
 
-print("=" * 70)
-print("STEP 1: LOADING CALCULATOR")
-print("=" * 70)
+def hidden_fields(html):
+    """
+    Extract all ASP.NET hidden input fields from the current response.
+    """
+    soup = BeautifulSoup(html, "html.parser")
 
-response = session.get(
-    CALCULATOR_URL,
-    timeout=30,
-    allow_redirects=True
-)
+    data = {}
 
-print("Status:", response.status_code)
-print("Final URL:", response.url)
-print("Response size:", len(response.content))
+    for inp in soup.select("input[type=hidden]"):
+        name = inp.get("name")
+        if name:
+            data[name] = inp.get("value", "")
 
-html = response.text
+    return data
 
-with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-    f.write(html)
 
-print("Saved:", OUTPUT_FILE)
+def country_list(html):
+    """
+    Extract the country value/text pairs from ddlMeDoOdrediste.
+    """
+    soup = BeautifulSoup(html, "html.parser")
 
-soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="ddlMeDoOdrediste")
 
-# ============================================================
-# STEP 2: SESSION COOKIES
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 2: SESSION COOKIES")
-print("=" * 70)
-
-for cookie in session.cookies:
-    print(
-        cookie.name,
-        "=",
-        cookie.value,
-        "(domain=",
-        cookie.domain,
-        ", path=",
-        cookie.path,
-        ")"
-    )
-
-# ============================================================
-# STEP 3: FORM
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 3: ASP.NET FORM")
-print("=" * 70)
-
-forms = soup.find_all("form")
-
-print("Forms found:", len(forms))
-
-for i, form in enumerate(forms, 1):
-    print("\nFORM", i)
-    print("id:", form.get("id"))
-    print("name:", form.get("name"))
-    print("method:", form.get("method"))
-    print("action:", form.get("action"))
-
-form = soup.find("form", id="form1")
-
-if not form:
-    print("ERROR: form#form1 not found")
-    raise SystemExit(1)
-
-form_action = urljoin(response.url, form.get("action", ""))
-
-print("\nSelected form:")
-print("id:", form.get("id"))
-print("action:", form_action)
-print("method:", form.get("method"))
-
-# ============================================================
-# STEP 4: HIDDEN ASP.NET FIELDS
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 4: ASP.NET HIDDEN FIELDS")
-print("=" * 70)
-
-hidden_names = [
-    "__VIEWSTATE",
-    "__VIEWSTATEGENERATOR",
-    "__EVENTVALIDATION",
-    "__EVENTTARGET",
-    "__EVENTARGUMENT",
-    "__LASTFOCUS",
-]
-
-for name in hidden_names:
-    element = form.find("input", {"name": name})
-
-    if element:
-        value = element.get("value", "")
-
-        print(
-            f"{name}: "
-            f"FOUND "
-            f"(length={len(value)})"
+    if not select:
+        raise RuntimeError(
+            "Could not find ddlMeDoOdrediste in the response."
         )
 
-        if name in ["__EVENTTARGET", "__EVENTARGUMENT"]:
-            print("  value:", repr(value))
-    else:
-        print(name + ": NOT FOUND")
+    countries = []
 
-# ============================================================
-# STEP 5: ALL INPUTS
-# ============================================================
+    for option in select.find_all("option"):
+        value = option.get("value")
+        name = option.get_text(strip=True)
 
-print("\n" + "=" * 70)
-print("STEP 5: ALL INPUT CONTROLS")
-print("=" * 70)
+        if value and name:
+            countries.append((value, name))
 
-inputs = form.find_all("input")
+    return countries
 
-print("Input count:", len(inputs))
 
-for i, inp in enumerate(inputs, 1):
+def make_async_headers():
+    return {
+        **HEADERS,
+        "X-Requested-With": "XMLHttpRequest",
+    }
 
-    print(
-        f"{i:3}: "
-        f"type={inp.get('type')!r} "
-        f"id={inp.get('id')!r} "
-        f"name={inp.get('name')!r} "
-        f"value={inp.get('value')!r} "
-        f"title={inp.get('title')!r}"
+
+def async_post(session, html, event_target, extra_data=None):
+    """
+    Perform an ASP.NET UpdatePanel-style async postback.
+
+    The current hidden fields are taken from the latest HTML response.
+    """
+    data = hidden_fields(html)
+
+    data["__EVENTTARGET"] = event_target
+    data["__EVENTARGUMENT"] = ""
+
+    # ASP.NET AJAX identifies the async control.
+    data["__ASYNCPOST"] = "true"
+
+    if extra_data:
+        data.update(extra_data)
+
+    response = session.post(
+        URL,
+        data=data,
+        headers=make_async_headers(),
+        timeout=90,
     )
 
-# ============================================================
-# STEP 6: SELECTS
-# ============================================================
+    response.raise_for_status()
 
-print("\n" + "=" * 70)
-print("STEP 6: SELECT ELEMENTS")
-print("=" * 70)
+    return response.text
 
-selects = form.find_all("select")
 
-print("Select count:", len(selects))
+def full_post(session, html, form_data):
+    """
+    Perform the final form submission for Izračunaj.
+    """
+    data = hidden_fields(html)
+    data.update(form_data)
 
-for i, select in enumerate(selects, 1):
-
-    print(
-        f"\nSELECT #{i}"
+    response = session.post(
+        URL,
+        data=data,
+        headers=HEADERS,
+        timeout=90,
     )
 
-    print("id:", select.get("id"))
-    print("name:", select.get("name"))
-    print("class:", select.get("class"))
+    response.raise_for_status()
 
-    options = select.find_all("option")
+    return response.text
 
-    print("options:", len(options))
 
-    for option in options:
-        print(
-            "   value=",
-            repr(option.get("value")),
-            "text=",
-            repr(option.get_text(" ", strip=True))
+def response_contains_suspended(html):
+    return SUSPENDED_MESSAGE in unescape(html)
+
+
+def response_contains_price(html):
+    """
+    Look for the calculator's price/result.
+
+    We deliberately don't hard-code the price because it can change.
+    """
+    text = BeautifulSoup(
+        unescape(html),
+        "html.parser"
+    ).get_text(" ", strip=True)
+
+    # Typical result wording from the calculator.
+    if "Ukupna cijena" in text:
+        return True
+
+    # Also accept a KM amount if the wording changes slightly.
+    if re.search(r"\b\d+(?:[,.]\d+)?\s*KM\b", text):
+        return True
+
+    return False
+
+
+def activate_dopisnica_and_airmail(session, html):
+    """
+    Navigate the controls needed for:
+      Međunarodni promet
+      Dopisnica
+      Avionski prijenos
+    """
+
+    # The initial page should already expose the international controls.
+    # If Dopisnica is not present, we click ImageButton8.
+    soup = BeautifulSoup(html, "html.parser")
+
+    if not soup.find("select", id="ddlMeDoOdrediste"):
+        print("Country selector not present yet.")
+
+        html = full_post(
+            session,
+            html,
+            {
+                "ImageButton8.x": "1",
+                "ImageButton8.y": "1",
+            },
         )
 
-# ============================================================
-# STEP 7: DEVEXPRESS TAB
-# ============================================================
+    # Check whether Avionski prijenos is already checked.
+    soup = BeautifulSoup(html, "html.parser")
 
-print("\n" + "=" * 70)
-print("STEP 7: DEVEXPRESS TAB CONTROL")
-print("=" * 70)
-
-tab = soup.find(id="ASPxTabControl1")
-
-if not tab:
-    print("ASPxTabControl1: NOT FOUND")
-else:
-
-    print("ASPxTabControl1: FOUND")
-
-    print("\nAttributes:")
-    for key, value in tab.attrs.items():
-        print(" ", key, "=", value)
-
-    print("\nHTML:")
-    print(tab.prettify())
-
-# ============================================================
-# STEP 8: INTERNATIONAL TAB
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 8: INTERNATIONAL TAB")
-print("=" * 70)
-
-international_nodes = []
-
-for element in soup.find_all(
-    string=lambda s: s and "Međunarodni promet" in s
-):
-    parent = element.parent
-    international_nodes.append(parent)
-
-print(
-    "Elements containing 'Međunarodni promet':",
-    len(international_nodes)
-)
-
-for i, element in enumerate(international_nodes, 1):
-
-    print("\n--- INTERNATIONAL NODE", i, "---")
-
-    print("TAG:", element.name)
-    print("ID:", element.get("id"))
-    print("CLASS:", element.get("class"))
-    print("TEXT:", element.get_text(" ", strip=True))
-
-    if element.name in ["a", "span", "li"]:
-        print("\nHTML:")
-        print(str(element))
-
-        print("\nPARENT:")
-        if element.parent:
-            print(str(element.parent))
-
-# ============================================================
-# STEP 9: SEARCH RAW HTML FOR INTERNATIONAL CONTROL NAMES
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 9: SEARCHING RAW HTML")
-print("=" * 70)
-
-search_terms = [
-    "Međunarodni",
-    "Medjunarodni",
-    "Dopisnica",
-    "Dopisnice",
-    "ddlMe",
-    "pnlMe",
-    "ImageButton8",
-    "MeDo",
-    "MeOb",
-    "Odrediste",
-    "Oderdiste",
-    "ASPxTabControl1",
-    "ActiveTabIndex",
-    "ActiveTab",
-    "TabIndex",
-    "SetActiveTab",
-    "SetActiveTabIndex",
-    "PerformCallback",
-    "Callback",
-    "__doPostBack",
-]
-
-for term in search_terms:
-
-    count = html.lower().count(term.lower())
-
-    print(
-        f"{term:30} -> {count}"
+    aviation = soup.find(
+        "input",
+        id="chbMeDoAvionski"
     )
 
-# ============================================================
-# STEP 10: EXTRACT LINES AROUND INTERNATIONAL TERMS
-# ============================================================
+    if not aviation:
+        raise RuntimeError(
+            "Could not find chbMeDoAvionski."
+        )
 
-print("\n" + "=" * 70)
-print("STEP 10: RAW HTML CONTEXT")
-print("=" * 70)
+    if not aviation.has_attr("checked"):
+        print("Enabling Avionski prijenos...")
 
-lines = html.splitlines()
+        html = async_post(
+            session,
+            html,
+            "chbMeDoAvionski",
+            {
+                "chbMeDoAvionski": "on",
+            },
+        )
 
-interesting_terms = [
-    "Međunarodni",
-    "ddlMe",
-    "pnlMe",
-    "ImageButton8",
-    "ASPxTabControl1",
-    "ActiveTabIndex",
-    "SetActiveTab",
-    "PerformCallback",
-    "__doPostBack",
-]
+    return html
 
-seen = set()
 
-for index, line in enumerate(lines):
+def set_country(session, html, country_code):
+    """
+    Select a destination country.
 
-    for term in interesting_terms:
+    The real site has onchange=__doPostBack('ddlMeDoOdrediste',''),
+    so we reproduce that event.
+    """
+    return async_post(
+        session,
+        html,
+        "ddlMeDoOdrediste",
+        {
+            "ddlMeDoOdrediste": country_code,
+        },
+    )
 
-        if term.lower() in line.lower():
 
-            start = max(0, index - 3)
-            end = min(len(lines), index + 4)
+def calculate(session, html, country_code):
+    """
+    Submit the calculator for one country at 10 grams.
+    """
+    form = {
+        "ddlMeDoOdrediste": country_code,
 
-            key = (start, end)
+        # The three optional services remain unchecked.
+        # Do not send them.
 
-            if key in seen:
-                continue
+        # Air transport is checked.
+        "chbMeDoAvionski": "on",
 
-            seen.add(key)
+        "tbxMeDoAvioTezina": WEIGHT,
 
-            print(
-                "\n--- context around line",
-                index + 1,
-                "---"
+        "btnMeDoIzracunaj": "Izračunaj",
+    }
+
+    return full_post(session, html, form)
+
+
+def main():
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    print("Opening calculator...")
+
+    response = session.get(
+        URL,
+        timeout=90,
+    )
+    response.raise_for_status()
+
+    html = response.text
+
+    # Activate required service.
+    html = activate_dopisnica_and_airmail(
+        session,
+        html,
+    )
+
+    # Obtain the country list from the current page.
+    countries = country_list(html)
+
+    print(f"Found {len(countries)} destination entries.")
+
+    available = []
+    suspended = []
+
+    for number, (code, name) in enumerate(countries, start=1):
+
+        print(
+            f"[{number}/{len(countries)}] "
+            f"{name} ({code})"
+        )
+
+        try:
+            # Select country.
+            html = set_country(
+                session,
+                html,
+                code,
             )
 
-            for n in range(start, end):
+            # Make sure the weight is present after the country
+            # postback. Some Web Forms applications regenerate
+            # controls during postback.
+            html = calculate(
+                session,
+                html,
+                code,
+            )
+
+            if response_contains_suspended(html):
+                print("    SUSPENDED")
+                suspended.append(name)
+
+            elif response_contains_price(html):
+                print("    AVAILABLE")
+                available.append(name)
+
+            else:
+                print("    UNKNOWN RESULT")
                 print(
-                    f"{n + 1:6}: {lines[n]}"
+                    "    The response contained neither "
+                    "the suspension message nor a price."
                 )
 
-            break
-
-# ============================================================
-# STEP 11: SEARCH JAVASCRIPT
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 11: JAVASCRIPT ANALYSIS")
-print("=" * 70)
-
-scripts = soup.find_all("script")
-
-print("Script elements:", len(scripts))
-
-js_keywords = [
-    "ASPxTabControl1",
-    "ActiveTabIndex",
-    "SetActiveTab",
-    "SetActiveTabIndex",
-    "GetTab",
-    "GetActiveTab",
-    "PerformCallback",
-    "Callback",
-    "__doPostBack",
-    "ImageButton4",
-    "Međunarodni",
-    "Medjunarodni",
-]
-
-for i, script in enumerate(scripts, 1):
-
-    src = script.get("src")
-
-    if src:
-        print(
-            f"\nSCRIPT #{i}: external"
-        )
-        print("src:", urljoin(response.url, src))
-
-    else:
-
-        text = script.get_text()
-
-        if any(
-            keyword.lower() in text.lower()
-            for keyword in js_keywords
-        ):
-
+        except Exception as exc:
             print(
-                f"\nSCRIPT #{i}: relevant inline JavaScript"
+                f"    ERROR: {type(exc).__name__}: {exc}"
             )
 
-            print(
-                text[:10000]
-            )
+        # Be polite to the server.
+        time.sleep(0.5)
 
-# ============================================================
-# STEP 12: EXTERNAL JAVASCRIPT FILES
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 12: JAVASCRIPT FILE REFERENCES")
-print("=" * 70)
-
-for script in scripts:
-
-    src = script.get("src")
-
-    if src:
-
-        absolute = urljoin(response.url, src)
-
-        print(absolute)
-
-# ============================================================
-# STEP 13: SEARCH FOR ASP.NET POSTBACK FUNCTIONS
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 13: POSTBACK FUNCTIONS")
-print("=" * 70)
-
-postback_patterns = [
-    r"__doPostBack\s*\(",
-    r"WebForm_DoPostBackWithOptions\s*\(",
-    r"ASPxClientUtils",
-    r"ASPxClientTabControl",
-    r"SetActiveTab",
-    r"PerformCallback",
-]
-
-for pattern in postback_patterns:
-
-    matches = list(
-        re.finditer(
-            pattern,
-            html,
-            re.IGNORECASE
-        )
+    # Write raw text lists.
+    AVAILABLE_FILE.write_text(
+        "\n".join(available) + "\n",
+        encoding="utf-8",
     )
 
-    print(
-        f"\nPATTERN: {pattern}"
+    SUSPENDED_FILE.write_text(
+        "\n".join(suspended) + "\n",
+        encoding="utf-8",
     )
 
-    print(
-        "Matches:",
-        len(matches)
-    )
+    print()
+    print("Finished.")
+    print(f"Available countries: {AVAILABLE_FILE}")
+    print(f"Suspended countries: {SUSPENDED_FILE}")
 
-    for match in matches[:20]:
 
-        start = max(
-            0,
-            match.start() - 500
-        )
-
-        end = min(
-            len(html),
-            match.end() + 1000
-        )
-
-        print(
-            html[start:end]
-        )
-
-# ============================================================
-# STEP 14: SEARCH ALL ELEMENT IDs
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 14: ALL IDS RELATED TO ME / INTERNATIONAL")
-print("=" * 70)
-
-for element in soup.find_all(True):
-
-    element_id = element.get("id")
-
-    if not element_id:
-        continue
-
-    id_lower = element_id.lower()
-
-    if any(
-        keyword in id_lower
-        for keyword in [
-            "me",
-            "med",
-            "international",
-            "odred",
-            "oder",
-            "pnl",
-            "ddl",
-            "imagebutton",
-        ]
-    ):
-
-        print(
-            element.name,
-            "id=",
-            element_id,
-            "name=",
-            element.get("name"),
-            "type=",
-            element.get("type"),
-            "title=",
-            element.get("title")
-        )
-
-# ============================================================
-# STEP 15: FORM HTML
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 15: COMPLETE FORM HTML")
-print("=" * 70)
-
-form_file = os.path.join(
-    DEBUG_DIR,
-    "step10_form.html"
-)
-
-with open(
-    form_file,
-    "w",
-    encoding="utf-8"
-) as f:
-    f.write(form.prettify())
-
-print(
-    "Complete form saved to:",
-    form_file
-)
-
-# ============================================================
-# STEP 16: SUMMARY
-# ============================================================
-
-print("\n" + "=" * 70)
-print("STEP 16: SUMMARY")
-print("=" * 70)
-
-print(
-    "Calculator URL:",
-    response.url
-)
-
-print(
-    "Form:",
-    form.get("id")
-)
-
-print(
-    "Form action:",
-    form_action
-)
-
-print(
-    "Inputs:",
-    len(inputs)
-)
-
-print(
-    "Selects:",
-    len(selects)
-)
-
-print(
-    "Scripts:",
-    len(scripts)
-)
-
-print(
-    "ASPxTabControl1:",
-    "FOUND" if tab else "NOT FOUND"
-)
-
-print(
-    "International text:",
-    "FOUND"
-    if "Međunarodni promet" in html
-    else "NOT FOUND"
-)
-
-print()
-print("Saved files:")
-print(" ", OUTPUT_FILE)
-print(" ", form_file)
-
-print("\n" + "=" * 70)
-print("NEXT OBJECTIVE")
-print("=" * 70)
-
-print(
-    """
-Determine exactly how the original calculator switches from
-'Unutrašnji promet' to 'Međunarodni promet'.
-
-Do NOT guess the control names.
-
-Look specifically for:
-
-1. ASP.NET __EVENTTARGET values
-2. DevExpress callback JavaScript
-3. ASPxTabControl1 client-side initialization
-4. Hidden fields containing the active tab
-5. Any JavaScript associated with the second tab
-6. Server-side postback/callback parameters
-7. Controls that appear only after activating the
-   Međunarodni promet tab
-"""
-)
+if __name__ == "__main__":
+    main()
