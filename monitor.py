@@ -27,6 +27,10 @@ HEADERS = {
 }
 
 
+# ============================================================
+# ASP.NET helpers
+# ============================================================
+
 def get_hidden_fields(html):
     soup = BeautifulSoup(html, "html.parser")
 
@@ -34,6 +38,7 @@ def get_hidden_fields(html):
 
     for element in soup.select("input[type='hidden']"):
         name = element.get("name")
+
         if name:
             data[name] = element.get("value", "")
 
@@ -43,7 +48,10 @@ def get_hidden_fields(html):
 def parse_countries(html):
     soup = BeautifulSoup(html, "html.parser")
 
-    select = soup.find("select", id="ddlMeDoOdrediste")
+    select = soup.find(
+        "select",
+        id="ddlMeDoOdrediste",
+    )
 
     if not select:
         return []
@@ -60,9 +68,183 @@ def parse_countries(html):
     return result
 
 
+def apply_async_delta(html, delta):
+    """
+    Apply an ASP.NET AJAX UpdatePanel delta response to the
+    current full HTML document.
+
+    ASP.NET AJAX responses look approximately like:
+
+        40|updatePanel|UpdatePanel2|<html...>
+        0|hiddenField|__EVENTTARGET|
+        17704|hiddenField|__VIEWSTATE|...
+        ...
+        27|panelsToRefreshIDs|...
+        2|asyncPostBackTimeout|90|
+
+    The response is NOT itself a complete HTML page.
+    """
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    pos = 0
+    length = len(delta)
+
+    update_count = 0
+    hidden_count = 0
+
+    while pos < length:
+
+        # Find the beginning of the next record.
+        match = re.match(
+            r"(\d+)\|([^|]*)\|([^|]*)\|",
+            delta[pos:],
+        )
+
+        if not match:
+            break
+
+        content_length = int(match.group(1))
+        record_type = match.group(2)
+        record_id = match.group(3)
+
+        header_length = match.end()
+
+        content_start = pos + header_length
+        content_end = content_start + content_length
+
+        content = delta[
+            content_start:content_end
+        ]
+
+        # Move exactly to the next record.
+        pos = content_end
+
+        # ----------------------------------------------------
+        # UpdatePanel
+        # ----------------------------------------------------
+
+        if record_type == "updatePanel":
+
+            panel = soup.find(
+                id=record_id
+            )
+
+            if panel:
+                new_panel = BeautifulSoup(
+                    content,
+                    "html.parser",
+                )
+
+                # Replace the panel's contents while retaining
+                # the existing UpdatePanel wrapper.
+                panel.clear()
+
+                for child in list(new_panel.contents):
+                    panel.append(child)
+
+                update_count += 1
+
+            else:
+                print(
+                    f"Warning: UpdatePanel '{record_id}' "
+                    f"was returned but does not exist locally."
+                )
+
+        # ----------------------------------------------------
+        # Hidden field
+        # ----------------------------------------------------
+
+        elif record_type == "hiddenField":
+
+            element = soup.find(
+                "input",
+                {
+                    "type": "hidden",
+                    "name": record_id,
+                },
+            )
+
+            if not element:
+                element = soup.find(
+                    "input",
+                    id=record_id,
+                )
+
+            if element:
+                element["value"] = content
+
+            else:
+                # Some hidden fields may not have existed in
+                # the initial HTML.
+                new_element = soup.new_tag(
+                    "input",
+                    type="hidden",
+                    name=record_id,
+                    value=content,
+                )
+
+                if record_id:
+                    new_element["id"] = record_id
+
+                form = soup.find("form")
+
+                if form:
+                    form.append(new_element)
+
+            hidden_count += 1
+
+        # ----------------------------------------------------
+        # Other ASP.NET AJAX records
+        # ----------------------------------------------------
+
+        elif record_type in {
+            "asyncPostBackControlIDs",
+            "postBackControlIDs",
+            "updatePanelIDs",
+            "childUpdatePanelIDs",
+            "panelsToRefreshIDs",
+            "asyncPostBackTimeout",
+            "formAction",
+            "scriptBlock",
+            "scriptStartupBlock",
+            "pageRedirect",
+        }:
+            # These records contain AJAX framework metadata or
+            # JavaScript. We don't need to insert them into the
+            # page for our requests.
+            pass
+
+        else:
+            # Keep this quiet for normal operation, but make
+            # unknown records visible while debugging.
+            print(
+                f"Notice: Ignoring ASP.NET AJAX record "
+                f"type='{record_type}', id='{record_id}'"
+            )
+
+    if update_count == 0:
+        print(
+            "Warning: AJAX response contained no UpdatePanel "
+            "content."
+        )
+
+    if hidden_count == 0:
+        print(
+            "Warning: AJAX response contained no hidden fields."
+        )
+
+    return str(soup)
+
+
+# ============================================================
+# HTTP POST helpers
+# ============================================================
+
 def post_async(session, html, event_target, extra=None):
     """
-    ASP.NET UpdatePanel postback.
+    Perform an ASP.NET AJAX UpdatePanel postback and merge
+    the returned delta into the current full HTML document.
     """
 
     data = get_hidden_fields(html)
@@ -90,7 +272,35 @@ def post_async(session, html, event_target, extra=None):
 
     response.raise_for_status()
 
-    return response.text
+    delta = response.text
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # An async response is a delta, not a complete HTML page.
+    # Merge it into our existing page.
+    # --------------------------------------------------------
+
+    if (
+        "|updatePanel|"
+        not in delta
+        and "|hiddenField|"
+        not in delta
+    ):
+        print(
+            "Warning: response does not look like an "
+            "ASP.NET AJAX delta."
+        )
+
+        # This is useful if the server unexpectedly sends a
+        # complete page.
+        if "<html" in delta.lower():
+            return delta
+
+    return apply_async_delta(
+        html,
+        delta,
+    )
 
 
 def post_normal(session, html, extra):
@@ -118,30 +328,31 @@ def post_normal(session, html, extra):
     return response.text
 
 
-def find_text(html, text):
-    return text in unescape(html)
-
+# ============================================================
+# Tab / service activation
+# ============================================================
 
 def activate_international(session, html):
     """
-    Your browser showed that after clicking the international
-    tab the page reports:
+    Activate Međunarodni promet.
 
-        activeTabIndex: 1
-
-    The tab control itself is ASPxTabControl1.
+    The server uses ASP.NET AJAX UpdatePanels, so the response
+    must be merged into the existing page.
     """
 
     print("Activating Međunarodni promet...")
 
-    # The actual ASPx tab control is client-side and its tab
-    # postback is normally generated by DevExpress JavaScript.
-    #
-    # First check whether we are already there.
-    if "ddlMeDoOdrediste" in html:
+    # --------------------------------------------------------
+    # First check whether the country selector is already
+    # present.
+    # --------------------------------------------------------
+
+    if parse_countries(html):
+        print(
+            "International destination selector already present."
+        )
         return html
 
-    # Try the known tab control callback.
     data = get_hidden_fields(html)
 
     data["__EVENTTARGET"] = "ASPxTabControl1"
@@ -162,31 +373,60 @@ def activate_international(session, html):
 
     response.raise_for_status()
 
-    html = response.text
+    delta = response.text
 
-    if "ddlMeDoOdrediste" not in html:
+    # --------------------------------------------------------
+    # Merge UpdatePanel2 into our original document.
+    # --------------------------------------------------------
+
+    html = apply_async_delta(
+        html,
+        delta,
+    )
+
+    countries = parse_countries(html)
+
+    if not countries:
+
+        print()
+        print(
+            "DEBUG: ddlMeDoOdrediste still not present after "
+            "applying the AJAX response."
+        )
+
+        print(
+            "DEBUG: Response size:",
+            len(delta),
+            "bytes",
+        )
+
         raise RuntimeError(
             "Could not activate Međunarodni promet. "
-            "The server did not return ddlMeDoOdrediste."
+            "After applying the ASP.NET AJAX delta, "
+            "ddlMeDoOdrediste is still missing."
         )
+
+    print(
+        f"International destination selector found "
+        f"({len(countries)} entries)."
+    )
 
     return html
 
 
 def activate_dopisnica(session, html):
     """
-    ImageButton8 is the Dopisnica control according to the
-    HTML you supplied.
+    Activate Dopisnica.
     """
 
-    if "ddlMeDoOdrediste" not in html:
+    if not parse_countries(html):
         raise RuntimeError(
             "Country selector is missing before Dopisnica."
         )
 
     print("Dopisnica selected.")
 
-    # If Dopisnica is already active, don't click it again.
+    # If already active, don't click again.
     if "Dopisnica_Aktivna.png" in html:
         return html
 
@@ -210,29 +450,37 @@ def activate_dopisnica(session, html):
 
 def activate_airmail(session, html):
     """
-    Enable:
-
-        chbMeDoAvionski
-
+    Enable chbMeDoAvionski.
     """
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
 
     checkbox = soup.find(
         "input",
-        id="chbMeDoAvionski"
+        id="chbMeDoAvionski",
     )
 
     if not checkbox:
+
         raise RuntimeError(
-            "Could not find chbMeDoAvionski."
+            "Could not find chbMeDoAvionski after applying "
+            "the current page/update-panel state."
         )
 
     if checkbox.has_attr("checked"):
-        print("Avionski prijenos already enabled.")
+
+        print(
+            "Avionski prijenos already enabled."
+        )
+
         return html
 
-    print("Enabling Avionski prijenos...")
+    print(
+        "Enabling Avionski prijenos..."
+    )
 
     html = post_async(
         session,
@@ -243,20 +491,40 @@ def activate_airmail(session, html):
         },
     )
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(
+        html,
+        "html.parser",
+    )
 
     checkbox = soup.find(
         "input",
-        id="chbMeDoAvionski"
+        id="chbMeDoAvionski",
     )
 
-    if not checkbox or not checkbox.has_attr("checked"):
+    if not checkbox:
         raise RuntimeError(
-            "Avionski prijenos could not be enabled."
+            "chbMeDoAvionski disappeared after the "
+            "ASP.NET AJAX postback."
         )
+
+    if not checkbox.has_attr("checked"):
+
+        # ASP.NET sometimes represents a checked checkbox
+        # through the returned form state rather than the
+        # literal HTML attribute.
+        value = checkbox.get("value")
+
+        if value != "on":
+            raise RuntimeError(
+                "Avionski prijenos could not be enabled."
+            )
 
     return html
 
+
+# ============================================================
+# Country selection / calculation
+# ============================================================
 
 def select_country(session, html, code):
     """
@@ -293,6 +561,10 @@ def calculate(session, html, code):
     )
 
 
+# ============================================================
+# Result detection
+# ============================================================
+
 def is_suspended(html):
     return SUSPENDED_MESSAGE in unescape(html)
 
@@ -300,27 +572,39 @@ def is_suspended(html):
 def is_available(html):
     text = BeautifulSoup(
         unescape(html),
-        "html.parser"
-    ).get_text(" ", strip=True)
+        "html.parser",
+    ).get_text(
+        " ",
+        strip=True,
+    )
 
     if "Ukupna cijena" in text:
         return True
 
     if re.search(
         r"\b\d+(?:[,.]\d+)?\s*KM\b",
-        text
+        text,
     ):
         return True
 
     return False
 
 
+# ============================================================
+# Main
+# ============================================================
+
 def main():
 
     session = requests.Session()
-    session.headers.update(HEADERS)
 
-    print("Opening calculator...")
+    session.headers.update(
+        HEADERS
+    )
+
+    print(
+        "Opening calculator..."
+    )
 
     response = session.get(
         URL,
@@ -364,10 +648,12 @@ def main():
     )
 
     # ---------------------------------------------------------
-    # 4. Read List 1 source
+    # 4. Read destination list
     # ---------------------------------------------------------
 
-    countries = parse_countries(html)
+    countries = parse_countries(
+        html
+    )
 
     if not countries:
         raise RuntimeError(
@@ -419,7 +705,9 @@ def main():
                     flush=True,
                 )
 
-                suspended.append(name)
+                suspended.append(
+                    name
+                )
 
             elif is_available(html):
 
@@ -428,7 +716,9 @@ def main():
                     flush=True,
                 )
 
-                available.append(name)
+                available.append(
+                    name
+                )
 
             else:
 
@@ -447,7 +737,7 @@ def main():
         time.sleep(0.5)
 
     # ---------------------------------------------------------
-    # 6. Write raw lists
+    # 6. Write results
     # ---------------------------------------------------------
 
     AVAILABLE_FILE.write_text(
@@ -463,10 +753,12 @@ def main():
     print()
     print("Finished.")
     print()
+
     print(
         f"Available countries written to: "
         f"{AVAILABLE_FILE}"
     )
+
     print(
         f"Suspended countries written to: "
         f"{SUSPENDED_FILE}"
