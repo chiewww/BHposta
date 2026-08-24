@@ -386,25 +386,41 @@ def activate_international(session, html):
 
     countries = parse_countries(html)
 
-    if not countries:
+   if not countries:
 
-        print()
-        print(
-            "DEBUG: ddlMeDoOdrediste still not present after "
-            "applying the AJAX response."
-        )
+    print()
+    print(
+        "DEBUG: ddlMeDoOdrediste still not present "
+        "after applying the AJAX response."
+    )
 
-        print(
-            "DEBUG: Response size:",
-            len(delta),
-            "bytes",
-        )
+    print(
+        "DEBUG: Response size:",
+        len(delta),
+        "bytes",
+    )
 
-        raise RuntimeError(
-            "Could not activate Međunarodni promet. "
-            "After applying the ASP.NET AJAX delta, "
-            "ddlMeDoOdrediste is still missing."
-        )
+    print(
+        "DEBUG: Response beginning:"
+    )
+
+    print(
+        repr(delta[:1000])
+    )
+
+    print(
+        "DEBUG: Response ending:"
+    )
+
+    print(
+        repr(delta[-1000:])
+    )
+
+    raise RuntimeError(
+        "Could not activate Međunarodni promet. "
+        "After applying the ASP.NET AJAX delta, "
+        "ddlMeDoOdrediste is still missing."
+    )
 
     print(
         f"International destination selector found "
