@@ -56,7 +56,7 @@ def normalize_text(text):
 
 def write_output_file(
     path,
-    available,
+    all_countries,
     suspended,
     unknown,
     errors,
@@ -71,12 +71,12 @@ def write_output_file(
         "========================================",
         "",
         "========================================",
-        "AVAILABLE COUNTRIES",
+        "ALL COUNTRIES",
         "========================================",
         "",
     ]
 
-    lines.extend(available)
+    lines.extend(all_countries)
 
     lines.extend(
         [
@@ -121,10 +121,10 @@ def write_output_file(
             "SUMMARY",
             "========================================",
             "",
-            f"Available: {len(available)}",
-            f"Suspended: {len(suspended)}",
-            f"Unknown:   {len(unknown)}",
-            f"Errors:    {len(errors)}",
+            f"All countries: {len(all_countries)}",
+            f"Suspended:     {len(suspended)}",
+            f"Unknown:       {len(unknown)}",
+            f"Errors:        {len(errors)}",
             "",
         ]
     )
@@ -1052,7 +1052,11 @@ def main():
                 "7. Checking every destination..."
             )
 
-            available = []
+            all_countries = [
+                country
+                for code, country in destinations
+            ]
+
             suspended = []
             unknown = []
             errors = []
@@ -1096,10 +1100,6 @@ def main():
                             f"    -> AVAILABLE "
                             f"({detail})",
                             flush=True,
-                        )
-
-                        available.append(
-                            country
                         )
 
                     elif status == "SUSPENDED":
@@ -1192,7 +1192,7 @@ def main():
 
             write_output_file(
                 OUTPUT_FILE,
-                available,
+                all_countries,
                 suspended,
                 unknown,
                 errors,
@@ -1221,26 +1221,26 @@ def main():
                 f"Destinations: {total}"
             )
             print(
-                f"Available:    {len(available)}"
+                f"All countries: {len(all_countries)}"
             )
             print(
-                f"Suspended:    {len(suspended)}"
+                f"Suspended:     {len(suspended)}"
             )
             print(
-                f"Unknown:      {len(unknown)}"
+                f"Unknown:       {len(unknown)}"
             )
             print(
-                f"Errors:       {len(errors)}"
+                f"Errors:        {len(errors)}"
             )
             print(
-                f"Runtime:      {elapsed:.1f} seconds"
+                f"Runtime:       {elapsed:.1f} seconds"
             )
             print(
                 "========================================"
             )
 
             print(
-                f"Output:       {OUTPUT_FILE}"
+                f"Output:        {OUTPUT_FILE}"
             )
 
         finally:
