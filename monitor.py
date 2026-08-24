@@ -66,9 +66,6 @@ def get_hidden_fields(soup):
 def add_form_controls(soup, data):
     """
     Add the current ASP.NET form controls.
-
-    This is important because this application uses a mixture
-    of ASP.NET WebForms, UpdatePanel and DevExpress controls.
     """
 
     form = soup.find("form")
@@ -150,62 +147,64 @@ def parse_ajax_records(text):
     """
     Parse the ASP.NET AJAX pipe-delimited response.
 
-    We specifically retain:
+    The BH Posta server returns records such as:
 
         updatePanel
         hiddenField
         scriptBlock
         scriptStartupBlock
 
-    The response from BH Posta is not a normal HTML document.
+    This parser intentionally preserves the HTML returned by
+    UpdatePanel records.
     """
 
     records = []
 
-    # ASP.NET AJAX response format:
-
-    # length|type|id|content|
-
-    # Some records contain an additional numeric field.
-    #
-    # We therefore use a scanner rather than trying to split
-    # the entire response on '|'.
-
     position = 0
-    length = len(text)
+    text_length = len(text)
 
-    while position < length:
-        separator = text.find("|", position)
+    while position < text_length:
+
+        separator = text.find(
+            "|",
+            position,
+        )
 
         if separator == -1:
             break
 
-        length_text = text[position:separator]
+        length_text = text[
+            position:separator
+        ]
 
         if not length_text.isdigit():
             position += 1
             continue
 
-        record_length = int(length_text)
+        record_length = int(
+            length_text
+        )
 
         record_start = separator + 1
 
-        if record_start >= length:
+        if record_start >= text_length:
             break
 
-        next_separator = text.find(
+        type_separator = text.find(
             "|",
             record_start,
         )
 
-        if next_separator == -1:
+        if type_separator == -1:
             break
 
         record_type = text[
-            record_start:next_separator
+            record_start:type_separator
         ]
 
-        content_start = next_separator + 1
+        content_start = (
+            type_separator + 1
+        )
 
         if record_type in (
             "updatePanel",
@@ -213,9 +212,13 @@ def parse_ajax_records(text):
             "scriptBlock",
             "scriptStartupBlock",
         ):
-            content_end = content_start + record_length
+            content_end = (
+                content_start
+                + record_length
+            )
 
-            if content_end <= length:
+            if content_end <= text_length:
+
                 content = text[
                     content_start:content_end
                 ]
@@ -227,7 +230,10 @@ def parse_ajax_records(text):
                     )
                 )
 
-                position = content_end + 1
+                position = (
+                    content_end + 1
+                )
+
                 continue
 
         position = content_start
@@ -241,15 +247,10 @@ def parse_delta_response(
     debug_name=None,
 ):
     """
-    Process a BH Posta ASP.NET AJAX response.
+    Process an ASP.NET AJAX response.
 
-    Important:
-    The returned UpdatePanel does NOT necessarily contain the
-    destination selector. It may contain only the portion of
-    the page changed by the tab operation.
-
-    Therefore we merge the returned panel into the existing
-    document instead of throwing away the existing page.
+    The original document is retained and UpdatePanel contents
+    are merged into it.
     """
 
     response.raise_for_status()
@@ -262,9 +263,9 @@ def parse_delta_response(
             encoding="utf-8",
         )
 
-    # If server returned complete HTML, use it directly.
     lower = text.lower()
 
+    # Complete HTML response.
     if (
         "<html" in lower
         or "<!doctype" in lower
@@ -279,18 +280,27 @@ def parse_delta_response(
         "html.parser",
     )
 
-    records = parse_ajax_records(text)
+    records = parse_ajax_records(
+        text
+    )
+
+    update_panel_count = sum(
+        1
+        for record_type, _ in records
+        if record_type == "updatePanel"
+    )
+
+    hidden_field_count = sum(
+        1
+        for record_type, _ in records
+        if record_type == "hiddenField"
+    )
 
     print(
-        f"DEBUG: AJAX records={len(records)}, "
-        f"UpdatePanels={sum("
-        f"record_type == 'updatePanel' "
-        f"for record_type, _ in records"
-        f")}, "
-        f"hiddenFields={sum("
-        f"record_type == 'hiddenField' "
-        f"for record_type, _ in records"
-        f")}"
+        "DEBUG: AJAX records="
+        f"{len(records)}, "
+        f"UpdatePanels={update_panel_count}, "
+        f"hiddenFields={hidden_field_count}"
     )
 
     # --------------------------------------------------------
@@ -302,18 +312,25 @@ def parse_delta_response(
         if record_type != "hiddenField":
             continue
 
-        parts = content.split("|", 1)
+        parts = content.split(
+            "|",
+            1,
+        )
 
         if len(parts) != 2:
             continue
 
         name, value = parts
 
-        value = html.unescape(value)
+        value = html.unescape(
+            value
+        )
 
         element = soup.find(
             "input",
-            attrs={"name": name},
+            attrs={
+                "name": name,
+            },
         )
 
         if element:
@@ -330,10 +347,12 @@ def parse_delta_response(
                     value=value,
                 )
 
-                form.append(new_input)
+                form.append(
+                    new_input
+                )
 
     # --------------------------------------------------------
-    # UpdatePanel content
+    # UpdatePanel contents
     # --------------------------------------------------------
 
     for record_type, content in records:
@@ -341,11 +360,10 @@ def parse_delta_response(
         if record_type != "updatePanel":
             continue
 
-        # updatePanel record normally has:
-        #
-        # UpdatePanel1|<HTML>
-        #
-        parts = content.split("|", 1)
+        parts = content.split(
+            "|",
+            1,
+        )
 
         if len(parts) != 2:
             continue
@@ -391,7 +409,9 @@ def normal_post(
         headers={
             **HEADERS,
             "Referer": URL,
-            "Origin": "https://bhpwebout.posta.ba",
+            "Origin": (
+                "https://bhpwebout.posta.ba"
+            ),
             "Content-Type": (
                 "application/x-www-form-urlencoded"
             ),
@@ -406,7 +426,9 @@ def normal_post(
             encoding="utf-8",
         )
 
-    return response_soup(response)
+    return response_soup(
+        response
+    )
 
 
 # ============================================================
@@ -420,22 +442,27 @@ def devexpress_tab_international(
     """
     Select Međunarodni promet.
 
-    The critical request is:
+    Important:
+    Do NOT require ddlMeDoOdrediste after this request.
 
-        __EVENTTARGET=ASPxTabControl1
-        __EVENTARGUMENT=CLICK:1
-        ASPxTabControl1={"activeTabIndex":0}
-        UpdatePanel1=ASPxTabControl1
-        __ASYNCPOST=true
+    The successful sequence is:
 
-    The response is merged into the original page.
+        initial page
+             ↓
+        Međunarodni promet
+             ↓
+        Dopisnica
+             ↓
+        destination selector
     """
 
     print(
         "   Performing DevExpress tab request..."
     )
 
-    data = get_hidden_fields(soup)
+    data = get_hidden_fields(
+        soup
+    )
 
     add_form_controls(
         soup,
@@ -484,7 +511,7 @@ def devexpress_tab_international(
     response.raise_for_status()
 
     print(
-        f"   AJAX response: "
+        "   AJAX response: "
         f"{len(response.text):,} bytes"
     )
 
@@ -494,14 +521,6 @@ def devexpress_tab_international(
         "debug_international_response.txt",
     )
 
-    # DO NOT require ddlMeDoOdrediste here.
-    #
-    # The successful sequence is:
-    #
-    # tab -> Dopisnica -> destination selector
-    #
-    # We only verify that the ASP.NET form still exists.
-
     if not soup.find("form"):
         raise RuntimeError(
             "ASP.NET form disappeared after "
@@ -509,8 +528,7 @@ def devexpress_tab_international(
         )
 
     print(
-        "   Međunarodni promet request "
-        "processed successfully."
+        "   Međunarodni promet request processed."
     )
 
     return soup
@@ -528,17 +546,18 @@ def click_dopisnica(
     Click ImageButton8 = Dopisnica.
 
     IMPORTANT:
-    Do not require ddlMeDoOdrediste before this request.
 
-    The destination selector is expected to become available
-    after Dopisnica is selected.
+    There must NOT be a requirement for
+    ddlMeDoOdrediste before this request.
     """
 
     print(
         "   Clicking Dopisnica..."
     )
 
-    data = get_hidden_fields(soup)
+    data = get_hidden_fields(
+        soup
+    )
 
     add_form_controls(
         soup,
@@ -572,7 +591,7 @@ def click_dopisnica(
     response.raise_for_status()
 
     print(
-        f"   Dopisnica response: "
+        "   Dopisnica response: "
         f"{len(response.text):,} bytes"
     )
 
@@ -588,13 +607,21 @@ def click_dopisnica(
         "html.parser",
     )
 
-    # Only now check for destination selector.
     select = soup.find(
         "select",
         id=DESTINATION_SELECT,
     )
 
     if not select:
+
+        # Save the page for diagnosis.
+        Path(
+            "debug_after_dopisnica.html"
+        ).write_text(
+            str(soup),
+            encoding="utf-8",
+        )
+
         raise RuntimeError(
             "Dopisnica POST completed, but "
             f"#{DESTINATION_SELECT} was not returned."
@@ -615,15 +642,13 @@ def click_air_transport(
     session,
     soup,
 ):
-    """
-    Enable Avionski prijenos.
-    """
-
     print(
         "   Selecting Avionski prijenos..."
     )
 
-    data = get_hidden_fields(soup)
+    data = get_hidden_fields(
+        soup
+    )
 
     add_form_controls(
         soup,
@@ -645,21 +670,6 @@ def click_air_transport(
         "debug_air_transport.html",
     )
 
-    checkbox = soup.find(
-        "input",
-        id=AIR_CHECKBOX,
-    )
-
-    if not checkbox:
-        print(
-            "   WARNING: Avionski checkbox "
-            "not found after POST."
-        )
-    else:
-        print(
-            "   Avionski prijenos processed."
-        )
-
     return soup
 
 
@@ -672,15 +682,13 @@ def set_weight(
     soup,
     weight,
 ):
-    """
-    Set 10 g.
-    """
-
     print(
         f"   Setting weight to {weight} g..."
     )
 
-    data = get_hidden_fields(soup)
+    data = get_hidden_fields(
+        soup
+    )
 
     add_form_controls(
         soup,
@@ -688,9 +696,13 @@ def set_weight(
     )
 
     data[AIR_CHECKBOX] = "on"
-    data[AIR_WEIGHT] = str(weight)
+
+    data[AIR_WEIGHT] = str(
+        weight
+    )
 
     data["__EVENTTARGET"] = ""
+
     data["__EVENTARGUMENT"] = ""
 
     soup = normal_post(
@@ -708,6 +720,7 @@ def set_weight(
 # ============================================================
 
 def get_destinations(soup):
+
     select = soup.find(
         "select",
         id=DESTINATION_SELECT,
@@ -723,6 +736,7 @@ def get_destinations(soup):
     for option in select.find_all(
         "option"
     ):
+
         code = option.get(
             "value",
             "",
@@ -753,13 +767,9 @@ def select_destination(
     soup,
     country_code,
 ):
-    """
-    Select destination.
-
-    This is a normal WebForms postback.
-    """
-
-    data = get_hidden_fields(soup)
+    data = get_hidden_fields(
+        soup
+    )
 
     add_form_controls(
         soup,
@@ -780,15 +790,15 @@ def select_destination(
         session,
         soup,
         data,
-        "debug_destination.html",
     )
 
 
 # ============================================================
-# Results
+# Result parsing
 # ============================================================
 
 def get_price(soup):
+
     element = soup.find(
         id="lblRezultat"
     )
@@ -800,7 +810,9 @@ def get_price(soup):
         element.stripped_strings
     )
 
-    text = html.unescape(text)
+    text = html.unescape(
+        text
+    )
 
     text = re.sub(
         r"\s+",
@@ -825,6 +837,7 @@ def get_price(soup):
 
 
 def get_error(soup):
+
     element = soup.find(
         id="lblMeObPiPoruka"
     )
@@ -836,7 +849,9 @@ def get_error(soup):
         element.stripped_strings
     )
 
-    text = html.unescape(text)
+    text = html.unescape(
+        text
+    )
 
     text = re.sub(
         r"\s+",
@@ -851,6 +866,7 @@ def get_error(soup):
 
 
 def is_zero_price(price):
+
     if not price:
         return False
 
@@ -868,16 +884,19 @@ def is_zero_price(price):
     if not match:
         return False
 
-    return float(
-        match.group(1)
-    ) == 0
+    return (
+        float(match.group(1))
+        == 0
+    )
 
 
 # ============================================================
-# Output files
+# Output
 # ============================================================
 
-def write_country_files(results):
+def write_country_files(
+    results
+):
     available = []
     suspended = []
     unknown = []
@@ -887,42 +906,68 @@ def write_country_files(results):
 
         country = result["country"]
 
-        if result["status"] == "AVAILABLE":
-            available.append(country)
+        status = result["status"]
 
-        elif result["status"] in (
+        if status == "AVAILABLE":
+            available.append(
+                country
+            )
+
+        elif status in (
             "UNAVAILABLE",
             "ZERO",
         ):
-            suspended.append(country)
+            suspended.append(
+                country
+            )
 
-        elif result["status"] == "UNKNOWN":
-            unknown.append(country)
+        elif status == "UNKNOWN":
+            unknown.append(
+                country
+            )
 
-        elif result["status"] == "ERROR":
-            errors.append(country)
+        elif status == "ERROR":
+            errors.append(
+                country
+            )
 
     AVAILABLE_FILE.write_text(
         "\n".join(available)
-        + ("\n" if available else ""),
+        + (
+            "\n"
+            if available
+            else ""
+        ),
         encoding="utf-8",
     )
 
     SUSPENDED_FILE.write_text(
         "\n".join(suspended)
-        + ("\n" if suspended else ""),
+        + (
+            "\n"
+            if suspended
+            else ""
+        ),
         encoding="utf-8",
     )
 
     UNKNOWN_FILE.write_text(
         "\n".join(unknown)
-        + ("\n" if unknown else ""),
+        + (
+            "\n"
+            if unknown
+            else ""
+        ),
         encoding="utf-8",
     )
 
     ERROR_FILE.write_text(
         "\n".join(errors)
-        + ("\n" if errors else ""),
+        + (
+            "\n"
+            if errors
+            else ""
+        ),
         encoding="utf-8",
     )
 
@@ -936,20 +981,25 @@ def write_output(
     lines.append(
         "BH POSTA - DOPISNICA"
     )
+
     lines.append(
         "========================================"
     )
+
     lines.append(
         "Prijenos: Avionski prijenos"
     )
+
     lines.append(
         "Tezina: 10 g"
     )
+
     lines.append("")
 
     lines.append(
         "SVE DESTINACIJE"
     )
+
     lines.append(
         "========================================"
     )
@@ -964,12 +1014,15 @@ def write_output(
     lines.append(
         "CIJENE"
     )
+
     lines.append(
         "========================================"
     )
 
     for result in results:
+
         if result["status"] == "AVAILABLE":
+
             lines.append(
                 f'{result["country"]} | '
                 f'{result["price"]}'
@@ -980,6 +1033,7 @@ def write_output(
     lines.append(
         "NEDOSTUPNE ILI CIJENA 0 KM"
     )
+
     lines.append(
         "========================================"
     )
@@ -994,11 +1048,14 @@ def write_output(
     ]
 
     if unavailable:
+
         for result in unavailable:
+
             lines.append(
                 f'{result["country"]} | '
                 f'{result["detail"]}'
             )
+
     else:
         lines.append("Nema")
 
@@ -1007,6 +1064,7 @@ def write_output(
     lines.append(
         "NEODREĐENO"
     )
+
     lines.append(
         "========================================"
     )
@@ -1018,11 +1076,14 @@ def write_output(
     ]
 
     if unknown:
+
         for result in unknown:
+
             lines.append(
                 f'{result["country"]} | '
                 f'{result["detail"]}'
             )
+
     else:
         lines.append("Nema")
 
@@ -1031,6 +1092,7 @@ def write_output(
     lines.append(
         "GREŠKE PRI PROVJERI"
     )
+
     lines.append(
         "========================================"
     )
@@ -1042,11 +1104,14 @@ def write_output(
     ]
 
     if errors:
+
         for result in errors:
+
             lines.append(
                 f'{result["country"]} | '
                 f'{result["detail"]}'
             )
+
     else:
         lines.append("Nema")
 
@@ -1086,7 +1151,7 @@ def main():
     response.raise_for_status()
 
     print(
-        f"Initial page received: "
+        "Initial page received: "
         f"{len(response.text):,} bytes"
     )
 
@@ -1133,13 +1198,14 @@ def main():
     )
 
     print(
-        f"   Found {len(destinations)} "
-        f"destinations."
+        "   Found "
+        f"{len(destinations)} "
+        "destinations."
     )
 
     if not destinations:
         raise RuntimeError(
-            "Destination selector exists, "
+            "Destination selector exists "
             "but contains no countries."
         )
 
@@ -1153,7 +1219,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 6. 10 g
+    # 6. Set 10 g
     # --------------------------------------------------------
 
     soup = set_weight(
@@ -1162,28 +1228,34 @@ def main():
         WEIGHT,
     )
 
-    # Re-read destination list after weight POST.
-    #
-    # The application can regenerate the form during a
-    # WebForms postback.
+    # The destination list may survive the POST,
+    # but if it does not, retain the list already obtained.
 
     try:
-        destinations = get_destinations(
-            soup
+
+        destinations_after_weight = (
+            get_destinations(soup)
         )
 
+        if destinations_after_weight:
+            destinations = (
+                destinations_after_weight
+            )
+
     except RuntimeError:
+
         print(
             "   WARNING: destination selector "
-            "was not present after weight POST."
+            "not present after weight POST."
         )
+
         print(
             "   Keeping destination list "
             "from Dopisnica response."
         )
 
     print(
-        f"   Destination list contains "
+        "   Destination list contains "
         f"{len(destinations)} countries."
     )
 
@@ -1268,7 +1340,7 @@ def main():
             elif price:
 
                 print(
-                    f"      -> AVAILABLE "
+                    "      -> AVAILABLE "
                     f"({price})",
                     flush=True,
                 )
@@ -1323,7 +1395,7 @@ def main():
         time.sleep(0.5)
 
     # --------------------------------------------------------
-    # 8. Write files
+    # 8. Write output
     # --------------------------------------------------------
 
     print(
@@ -1344,12 +1416,14 @@ def main():
     # --------------------------------------------------------
 
     available = sum(
-        result["status"] == "AVAILABLE"
+        result["status"]
+        == "AVAILABLE"
         for result in results
     )
 
     unavailable = sum(
-        result["status"] in (
+        result["status"]
+        in (
             "UNAVAILABLE",
             "ZERO",
         )
@@ -1357,40 +1431,51 @@ def main():
     )
 
     unknown = sum(
-        result["status"] == "UNKNOWN"
+        result["status"]
+        == "UNKNOWN"
         for result in results
     )
 
     errors = sum(
-        result["status"] == "ERROR"
+        result["status"]
+        == "ERROR"
         for result in results
     )
 
     print()
+
     print(
         "========================================"
     )
+
     print(
         "Finished."
     )
+
     print(
         f"Destinations: {len(results)}"
     )
+
     print(
         f"Available:    {available}"
     )
+
     print(
         f"Unavailable:  {unavailable}"
     )
+
     print(
         f"Unknown:      {unknown}"
     )
+
     print(
         f"Errors:       {errors}"
     )
+
     print(
         f"Output:       {OUTPUT_FILE}"
     )
+
     print(
         "========================================"
     )
