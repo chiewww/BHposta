@@ -13,16 +13,16 @@ URL = (
     "KalkulatorCijena_WEB_app/Bos/Default.aspx"
 )
 
-COUNTRIES_FILE = Path("countries.txt")
 AVAILABLE_FILE = Path("available_countries.txt")
 SUSPENDED_FILE = Path("suspended_countries.txt")
-RESULTS_FILE = Path("monitor_results.txt")
+UNKNOWN_FILE = Path("unknown_countries.txt")
+ERROR_FILE = Path("error_countries.txt")
+OUTPUT_FILE = Path("output.txt")
 
 DESTINATION_SELECT = "ddlMeDoOdrediste"
 AIR_CHECKBOX = "chbMeDoAvionski"
 AIR_WEIGHT = "tbxMeDoAvioTezina"
 DOPISNICA_BUTTON = "ImageButton8"
-CALCULATE_BUTTON = "btnMeDoIzracunaj"
 
 WEIGHT = "10"
 
@@ -38,63 +38,43 @@ HEADERS = {
         "Chrome/151.0.0.0 "
         "Safari/537.36"
     ),
-    "Accept": (
-        "text/html,application/xhtml+xml,"
-        "application/xml;q=0.9,image/avif,image/webp,"
-        "*/*;q=0.8"
-    ),
-    "Accept-Language": "en-US,en;q=0.9,ja;q=0.8",
-    "Connection": "keep-alive",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
 # ============================================================
-# GENERAL HELPERS
+# General helpers
 # ============================================================
-
 
 def response_soup(response):
     response.raise_for_status()
-
-    return BeautifulSoup(
-        response.text,
-        "html.parser",
-    )
+    return BeautifulSoup(response.text, "html.parser")
 
 
 def get_hidden_fields(soup):
     data = {}
 
-    for element in soup.select(
-        "input[type='hidden']"
-    ):
+    for element in soup.select("input[type='hidden']"):
         name = element.get("name")
 
         if name:
-            data[name] = element.get(
-                "value",
-                "",
-            )
+            data[name] = element.get("value", "")
 
     return data
 
 
 def add_form_controls(soup, data):
     """
-    Add current ASP.NET form control values.
+    Add the current ASP.NET form controls.
 
-    This is important because the BH Pošta page is stateful.
-    Sending only the control being clicked can cause the server
-    to return the initial page instead of the current calculator
-    state.
+    This is important because this application uses a mixture
+    of ASP.NET WebForms, UpdatePanel and DevExpress controls.
     """
 
     form = soup.find("form")
 
     if not form:
-        raise RuntimeError(
-            "ASP.NET form was not found."
-        )
+        raise RuntimeError("ASP.NET form was not found.")
 
     for element in form.find_all(
         ["input", "select", "textarea"]
@@ -159,121 +139,98 @@ def add_form_controls(soup, data):
                 "",
             )
 
-
-def find_form(soup):
-    form = soup.find("form")
-
-    if not form:
-        raise RuntimeError(
-            "ASP.NET form was not found."
-        )
-
-    return form
+    return data
 
 
 # ============================================================
-# ASP.NET AJAX DELTA PARSER
+# ASP.NET AJAX parser
 # ============================================================
-
 
 def parse_ajax_records(text):
     """
-    Parse the actual ASP.NET AJAX pipe-delimited response.
+    Parse the ASP.NET AJAX pipe-delimited response.
 
-    Example:
+    We specifically retain:
 
-        1|#||4|6967|updatePanel|UpdatePanel1|<html...>
+        updatePanel
+        hiddenField
+        scriptBlock
+        scriptStartupBlock
 
-    The number immediately before a record is the byte/character
-    length of the record payload.
-
-    We parse by length instead of trying to use a greedy regex.
-    That is important because UpdatePanel HTML itself contains
-    many '|' characters.
+    The response from BH Posta is not a normal HTML document.
     """
 
     records = []
+
+    # ASP.NET AJAX response format:
+
+    # length|type|id|content|
+
+    # Some records contain an additional numeric field.
+    #
+    # We therefore use a scanner rather than trying to split
+    # the entire response on '|'.
 
     position = 0
     length = len(text)
 
     while position < length:
-        # Skip stray separators/newlines.
-        while position < length and text[position] in "\r\n":
-            position += 1
-
-        if position >= length:
-            break
-
-        separator = text.find(
-            "|",
-            position,
-        )
+        separator = text.find("|", position)
 
         if separator == -1:
             break
 
-        length_text = text[
-            position:separator
-        ]
+        length_text = text[position:separator]
 
         if not length_text.isdigit():
-            # Some ASP.NET responses can contain a leading marker.
             position += 1
             continue
 
         record_length = int(length_text)
 
-        position = separator + 1
+        record_start = separator + 1
 
-        type_separator = text.find(
+        if record_start >= length:
+            break
+
+        next_separator = text.find(
             "|",
-            position,
+            record_start,
         )
 
-        if type_separator == -1:
+        if next_separator == -1:
             break
 
         record_type = text[
-            position:type_separator
+            record_start:next_separator
         ]
 
-        position = type_separator + 1
+        content_start = next_separator + 1
 
-        id_separator = text.find(
-            "|",
-            position,
-        )
+        if record_type in (
+            "updatePanel",
+            "hiddenField",
+            "scriptBlock",
+            "scriptStartupBlock",
+        ):
+            content_end = content_start + record_length
 
-        if id_separator == -1:
-            break
+            if content_end <= length:
+                content = text[
+                    content_start:content_end
+                ]
 
-        record_id = text[
-            position:id_separator
-        ]
+                records.append(
+                    (
+                        record_type,
+                        content,
+                    )
+                )
 
-        position = id_separator + 1
+                position = content_end + 1
+                continue
 
-        record_data = text[
-            position:position + record_length
-        ]
-
-        if len(record_data) != record_length:
-            break
-
-        records.append(
-            (
-                record_type,
-                record_id,
-                record_data,
-            )
-        )
-
-        position += record_length
-
-        # Record terminator.
-        if position < length and text[position] == "|":
-            position += 1
+        position = content_start
 
     return records
 
@@ -281,19 +238,31 @@ def parse_ajax_records(text):
 def parse_delta_response(
     response,
     old_soup,
+    debug_name=None,
 ):
     """
-    Apply an ASP.NET AJAX partial response to the previous page.
+    Process a BH Posta ASP.NET AJAX response.
 
-    The BH Pošta server returns UpdatePanel1 content as an AJAX
-    delta rather than a complete HTML document.
+    Important:
+    The returned UpdatePanel does NOT necessarily contain the
+    destination selector. It may contain only the portion of
+    the page changed by the tab operation.
+
+    Therefore we merge the returned panel into the existing
+    document instead of throwing away the existing page.
     """
 
     response.raise_for_status()
 
     text = response.text
 
-    # Complete HTML response.
+    if debug_name:
+        Path(debug_name).write_text(
+            text,
+            encoding="utf-8",
+        )
+
+    # If server returned complete HTML, use it directly.
     lower = text.lower()
 
     if (
@@ -305,207 +274,168 @@ def parse_delta_response(
             "html.parser",
         )
 
-    records = parse_ajax_records(text)
-
-    if not records:
-        raise RuntimeError(
-            "ASP.NET AJAX response contained no parseable records."
-        )
-
     soup = BeautifulSoup(
         str(old_soup),
         "html.parser",
     )
 
-    hidden_count = 0
-    panel_count = 0
-
-    for record_type, record_id, record_data in records:
-
-        record_data = html.unescape(
-            record_data
-        )
-
-        if record_type == "hiddenField":
-
-            hidden_count += 1
-
-            element = soup.find(
-                "input",
-                attrs={
-                    "name": record_id,
-                },
-            )
-
-            if element:
-                element["value"] = record_data
-
-            else:
-                form = soup.find("form")
-
-                if form:
-                    new_input = soup.new_tag(
-                        "input"
-                    )
-
-                    new_input["type"] = "hidden"
-                    new_input["name"] = record_id
-                    new_input["value"] = record_data
-
-                    form.append(new_input)
-
-        elif record_type == "updatePanel":
-
-            panel_count += 1
-
-            panel = soup.find(
-                id=record_id
-            )
-
-            if panel:
-                new_panel = BeautifulSoup(
-                    record_data,
-                    "html.parser",
-                )
-
-                panel.clear()
-
-                for child in list(
-                    new_panel.contents
-                ):
-                    panel.append(child)
-
-            else:
-                # UpdatePanel may not be present in the original
-                # DOM. Create it so subsequent controls can still
-                # be discovered.
-                form = soup.find("form")
-
-                if form:
-                    new_panel = soup.new_tag(
-                        "div",
-                        id=record_id,
-                    )
-
-                    parsed = BeautifulSoup(
-                        record_data,
-                        "html.parser",
-                    )
-
-                    for child in list(
-                        parsed.contents
-                    ):
-                        new_panel.append(child)
-
-                    form.append(new_panel)
+    records = parse_ajax_records(text)
 
     print(
         f"DEBUG: AJAX records={len(records)}, "
-        f"UpdatePanels={panel_count}, "
-        f"hiddenFields={hidden_count}",
-        flush=True,
+        f"UpdatePanels={sum("
+        f"record_type == 'updatePanel' "
+        f"for record_type, _ in records"
+        f")}, "
+        f"hiddenFields={sum("
+        f"record_type == 'hiddenField' "
+        f"for record_type, _ in records"
+        f")}"
     )
+
+    # --------------------------------------------------------
+    # Hidden fields
+    # --------------------------------------------------------
+
+    for record_type, content in records:
+
+        if record_type != "hiddenField":
+            continue
+
+        parts = content.split("|", 1)
+
+        if len(parts) != 2:
+            continue
+
+        name, value = parts
+
+        value = html.unescape(value)
+
+        element = soup.find(
+            "input",
+            attrs={"name": name},
+        )
+
+        if element:
+            element["value"] = value
+
+        else:
+            form = soup.find("form")
+
+            if form:
+                new_input = soup.new_tag(
+                    "input",
+                    type="hidden",
+                    name=name,
+                    value=value,
+                )
+
+                form.append(new_input)
+
+    # --------------------------------------------------------
+    # UpdatePanel content
+    # --------------------------------------------------------
+
+    for record_type, content in records:
+
+        if record_type != "updatePanel":
+            continue
+
+        # updatePanel record normally has:
+        #
+        # UpdatePanel1|<HTML>
+        #
+        parts = content.split("|", 1)
+
+        if len(parts) != 2:
+            continue
+
+        panel_id, panel_html = parts
+
+        panel = soup.find(
+            id=panel_id
+        )
+
+        if not panel:
+            continue
+
+        new_panel = BeautifulSoup(
+            panel_html,
+            "html.parser",
+        )
+
+        panel.clear()
+
+        for child in list(
+            new_panel.contents
+        ):
+            panel.append(child)
 
     return soup
 
 
 # ============================================================
-# HTTP POST HELPERS
+# Normal ASP.NET POST
 # ============================================================
-
-
-def async_post(
-    session,
-    soup,
-    data,
-):
-    headers = {
-        **HEADERS,
-        "Referer": URL,
-        "Origin": "https://bhpwebout.posta.ba",
-        "X-Requested-With": "XMLHttpRequest",
-        "X-MicrosoftAjax": "Delta=true",
-        "Content-Type": (
-            "application/x-www-form-urlencoded; "
-            "charset=UTF-8"
-        ),
-    }
-
-    response = session.post(
-        URL,
-        data=data,
-        headers=headers,
-        timeout=90,
-    )
-
-    response.raise_for_status()
-
-    return parse_delta_response(
-        response,
-        soup,
-    )
-
 
 def normal_post(
     session,
     soup,
     data,
+    debug_name=None,
 ):
-    headers = {
-        **HEADERS,
-        "Referer": URL,
-        "Origin": "https://bhpwebout.posta.ba",
-        "Content-Type": (
-            "application/x-www-form-urlencoded"
-        ),
-    }
-
     response = session.post(
         URL,
         data=data,
-        headers=headers,
         timeout=90,
+        headers={
+            **HEADERS,
+            "Referer": URL,
+            "Origin": "https://bhpwebout.posta.ba",
+            "Content-Type": (
+                "application/x-www-form-urlencoded"
+            ),
+        },
     )
 
     response.raise_for_status()
 
-    return response_soup(
-        response
-    )
+    if debug_name:
+        Path(debug_name).write_text(
+            response.text,
+            encoding="utf-8",
+        )
+
+    return response_soup(response)
 
 
 # ============================================================
-# INTERNATIONAL TAB
+# Međunarodni promet
 # ============================================================
-
 
 def devexpress_tab_international(
     session,
     soup,
 ):
     """
-    This is the request pattern from the version that successfully
-    exposed the destination list.
+    Select Međunarodni promet.
 
-    Do NOT replace this with guessed DevExpress callback arguments.
-
-    Browser request:
+    The critical request is:
 
         __EVENTTARGET=ASPxTabControl1
         __EVENTARGUMENT=CLICK:1
         ASPxTabControl1={"activeTabIndex":0}
         UpdatePanel1=ASPxTabControl1
         __ASYNCPOST=true
+
+    The response is merged into the original page.
     """
 
     print(
-        "2. Selecting Međunarodni promet...",
-        flush=True,
+        "   Performing DevExpress tab request..."
     )
 
-    data = get_hidden_fields(
-        soup
-    )
+    data = get_hidden_fields(soup)
 
     add_form_controls(
         soup,
@@ -530,14 +460,10 @@ def devexpress_tab_international(
 
     data["__ASYNCPOST"] = "true"
 
-    print(
-        "   Performing DevExpress tab request...",
-        flush=True,
-    )
-
     response = session.post(
         URL,
         data=data,
+        timeout=90,
         headers={
             **HEADERS,
             "Referer": URL,
@@ -545,70 +471,74 @@ def devexpress_tab_international(
                 "https://bhpwebout.posta.ba"
             ),
             "X-MicrosoftAjax": "Delta=true",
-            "X-Requested-With": "XMLHttpRequest",
+            "X-Requested-With": (
+                "XMLHttpRequest"
+            ),
             "Content-Type": (
                 "application/x-www-form-urlencoded; "
                 "charset=UTF-8"
             ),
         },
-        timeout=90,
     )
 
     response.raise_for_status()
 
     print(
         f"   AJAX response: "
-        f"{len(response.text):,} bytes",
-        flush=True,
+        f"{len(response.text):,} bytes"
     )
 
-    result = parse_delta_response(
+    soup = parse_delta_response(
         response,
         soup,
+        "debug_international_response.txt",
     )
 
-    if DESTINATION_SELECT in str(result):
-        print(
-            "   Destination selector detected.",
-            flush=True,
+    # DO NOT require ddlMeDoOdrediste here.
+    #
+    # The successful sequence is:
+    #
+    # tab -> Dopisnica -> destination selector
+    #
+    # We only verify that the ASP.NET form still exists.
+
+    if not soup.find("form"):
+        raise RuntimeError(
+            "ASP.NET form disappeared after "
+            "Međunarodni promet request."
         )
 
-    return result
+    print(
+        "   Međunarodni promet request "
+        "processed successfully."
+    )
+
+    return soup
 
 
 # ============================================================
-# DOPISNICA
+# Dopisnica
 # ============================================================
-
 
 def click_dopisnica(
     session,
     soup,
 ):
     """
-    Click ImageButton8.
+    Click ImageButton8 = Dopisnica.
 
-    The destination dropdown should already exist after the
-    international tab is selected.
+    IMPORTANT:
+    Do not require ddlMeDoOdrediste before this request.
+
+    The destination selector is expected to become available
+    after Dopisnica is selected.
     """
 
-    if not soup.find(
-        "select",
-        id=DESTINATION_SELECT,
-    ):
-        raise RuntimeError(
-            "Destination selector is missing "
-            "before Dopisnica."
-        )
-
     print(
-        "3. Selecting Dopisnica...",
-        flush=True,
+        "   Clicking Dopisnica..."
     )
 
-    data = get_hidden_fields(
-        soup
-    )
+    data = get_hidden_fields(soup)
 
     add_form_controls(
         soup,
@@ -623,65 +553,77 @@ def click_dopisnica(
         f"{DOPISNICA_BUTTON}.y"
     ] = "1"
 
-    result = normal_post(
-        session,
-        soup,
-        data,
+    response = session.post(
+        URL,
+        data=data,
+        timeout=90,
+        headers={
+            **HEADERS,
+            "Referer": URL,
+            "Origin": (
+                "https://bhpwebout.posta.ba"
+            ),
+            "Content-Type": (
+                "application/x-www-form-urlencoded"
+            ),
+        },
     )
+
+    response.raise_for_status()
 
     print(
-        f"   Destination selector after "
-        f"Dopisnica: "
-        f"{bool(result.find('select', id=DESTINATION_SELECT))}",
-        flush=True,
+        f"   Dopisnica response: "
+        f"{len(response.text):,} bytes"
     )
 
-    return result
+    Path(
+        "debug_dopisnica_response.html"
+    ).write_text(
+        response.text,
+        encoding="utf-8",
+    )
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    # Only now check for destination selector.
+    select = soup.find(
+        "select",
+        id=DESTINATION_SELECT,
+    )
+
+    if not select:
+        raise RuntimeError(
+            "Dopisnica POST completed, but "
+            f"#{DESTINATION_SELECT} was not returned."
+        )
+
+    print(
+        "   Destination selector found."
+    )
+
+    return soup
 
 
 # ============================================================
-# AIR TRANSPORT
+# Avionski prijenos
 # ============================================================
 
-
-def enable_air_transport(
+def click_air_transport(
     session,
     soup,
 ):
     """
-    Enable chbMeDoAvionski.
-
-    Try the normal ASP.NET postback first, matching the successful
-    script. If the server returns the control without checked state,
-    retry with the checkbox explicitly posted.
+    Enable Avionski prijenos.
     """
 
     print(
-        "4. Selecting Avionski prijenos...",
-        flush=True,
+        "   Selecting Avionski prijenos..."
     )
 
-    checkbox = soup.find(
-        "input",
-        id=AIR_CHECKBOX,
-    )
-
-    if not checkbox:
-        raise RuntimeError(
-            f"#{AIR_CHECKBOX} was not found."
-        )
-
-    if checkbox.has_attr("checked"):
-        print(
-            "   Avionski prijenos already enabled.",
-            flush=True,
-        )
-
-        return soup
-
-    data = get_hidden_fields(
-        soup
-    )
+    data = get_hidden_fields(soup)
 
     add_form_controls(
         soup,
@@ -696,41 +638,74 @@ def enable_air_transport(
 
     data[AIR_CHECKBOX] = "on"
 
-    result = normal_post(
+    soup = normal_post(
         session,
         soup,
         data,
+        "debug_air_transport.html",
     )
 
-    checkbox = result.find(
+    checkbox = soup.find(
         "input",
         id=AIR_CHECKBOX,
     )
 
-    if checkbox and checkbox.has_attr(
-        "checked"
-    ):
+    if not checkbox:
         print(
-            "   Avionski prijenos enabled.",
-            flush=True,
+            "   WARNING: Avionski checkbox "
+            "not found after POST."
+        )
+    else:
+        print(
+            "   Avionski prijenos processed."
         )
 
-        return result
+    return soup
+
+
+# ============================================================
+# Weight
+# ============================================================
+
+def set_weight(
+    session,
+    soup,
+    weight,
+):
+    """
+    Set 10 g.
+    """
 
     print(
-        "   Checkbox did not expose checked "
-        "attribute; continuing with explicit "
-        "airmail value.",
-        flush=True,
+        f"   Setting weight to {weight} g..."
     )
 
-    return result
+    data = get_hidden_fields(soup)
+
+    add_form_controls(
+        soup,
+        data,
+    )
+
+    data[AIR_CHECKBOX] = "on"
+    data[AIR_WEIGHT] = str(weight)
+
+    data["__EVENTTARGET"] = ""
+    data["__EVENTARGUMENT"] = ""
+
+    soup = normal_post(
+        session,
+        soup,
+        data,
+        "debug_weight.html",
+    )
+
+    return soup
 
 
 # ============================================================
-# DESTINATIONS
+# Destination list
 # ============================================================
-
 
 def get_destinations(soup):
     select = soup.find(
@@ -770,9 +745,8 @@ def get_destinations(soup):
 
 
 # ============================================================
-# CALCULATOR
+# Destination selection
 # ============================================================
-
 
 def select_destination(
     session,
@@ -782,13 +756,10 @@ def select_destination(
     """
     Select destination.
 
-    We use the same normal ASP.NET postback pattern that was
-    present in the successful country-list script.
+    This is a normal WebForms postback.
     """
 
-    data = get_hidden_fields(
-        soup
-    )
+    data = get_hidden_fields(soup)
 
     add_form_controls(
         soup,
@@ -809,73 +780,47 @@ def select_destination(
         session,
         soup,
         data,
-    )
-
-
-def calculate(
-    session,
-    soup,
-    country_code,
-):
-    """
-    Submit the actual calculation.
-
-    Important: include the complete current form state.
-    """
-
-    data = get_hidden_fields(
-        soup
-    )
-
-    add_form_controls(
-        soup,
-        data,
-    )
-
-    data[
-        DESTINATION_SELECT
-    ] = country_code
-
-    data[AIR_CHECKBOX] = "on"
-
-    data[AIR_WEIGHT] = WEIGHT
-
-    data["__EVENTTARGET"] = ""
-
-    data["__EVENTARGUMENT"] = ""
-
-    data[
-        CALCULATE_BUTTON
-    ] = "Izračunaj"
-
-    # Some ASP.NET forms use the button name as the submit
-    # control. Keep it in the payload.
-    data[
-        f"{CALCULATE_BUTTON}.x"
-    ] = "1"
-
-    data[
-        f"{CALCULATE_BUTTON}.y"
-    ] = "1"
-
-    return normal_post(
-        session,
-        soup,
-        data,
+        "debug_destination.html",
     )
 
 
 # ============================================================
-# RESULT PARSING
+# Results
 # ============================================================
 
+def get_price(soup):
+    element = soup.find(
+        id="lblRezultat"
+    )
 
-def get_full_text(soup):
-    return html.unescape(
-        soup.get_text(
-            " ",
-            strip=True,
-        )
+    if not element:
+        return None
+
+    text = " ".join(
+        element.stripped_strings
+    )
+
+    text = html.unescape(text)
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
+
+    match = re.search(
+        r"Ukupna\s+cijena\s+"
+        r"([0-9]+(?:[,.][0-9]+)?)"
+        r"\s*KM",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not match:
+        return None
+
+    return (
+        f"{match.group(1)} KM"
     )
 
 
@@ -884,166 +829,105 @@ def get_error(soup):
         id="lblMeObPiPoruka"
     )
 
-    if element:
-        text = " ".join(
-            element.stripped_strings
-        )
-
-        text = html.unescape(
-            text
-        )
-
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        ).strip()
-
-        if ERROR_TEXT.lower() in text.lower():
-            return ERROR_TEXT
-
-        if text:
-            return text
-
-    full_text = get_full_text(
-        soup
-    )
-
-    if ERROR_TEXT.lower() in full_text.lower():
-        return ERROR_TEXT
-
-    return None
-
-
-def get_price(soup):
-    """
-    Look for the calculator's total price.
-
-    Prefer lblRezultat but also search the complete page because
-    some responses move the result element inside an UpdatePanel.
-    """
-
-    candidates = []
-
-    element = soup.find(
-        id="lblRezultat"
-    )
-
-    if element:
-        candidates.append(
-            " ".join(
-                element.stripped_strings
-            )
-        )
-
-    candidates.append(
-        get_full_text(soup)
-    )
-
-    for text in candidates:
-
-        text = html.unescape(
-            text
-        )
-
-        text = re.sub(
-            r"\s+",
-            " ",
-            text,
-        ).strip()
-
-        match = re.search(
-            r"Ukupna\s+cijena\s*"
-            r"([0-9]+(?:[,.][0-9]+)?)"
-            r"\s*KM",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        if match:
-            return (
-                f"{match.group(1)} KM"
-            )
-
-        # Fallback: any KM price.
-        match = re.search(
-            r"\b"
-            r"([0-9]+(?:[,.][0-9]+)?)"
-            r"\s*KM\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        if match:
-            return (
-                f"{match.group(1)} KM"
-            )
-
-    return None
-
-
-def price_value(price):
-    if not price:
+    if not element:
         return None
 
+    text = " ".join(
+        element.stripped_strings
+    )
+
+    text = html.unescape(text)
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
+
+    if ERROR_TEXT.lower() in text.lower():
+        return ERROR_TEXT
+
+    return text or None
+
+
+def is_zero_price(price):
+    if not price:
+        return False
+
+    normalized = price.replace(
+        ",",
+        ".",
+    )
+
     match = re.search(
-        r"([0-9]+(?:[,.][0-9]+)?)",
-        price,
+        r"([0-9]+(?:\.[0-9]+)?)"
+        r"\s*KM",
+        normalized,
     )
 
     if not match:
-        return None
+        return False
 
-    try:
-        return float(
-            match.group(1).replace(
-                ",",
-                ".",
-            )
-        )
-    except ValueError:
-        return None
+    return float(
+        match.group(1)
+    ) == 0
 
 
 # ============================================================
-# OUTPUT
+# Output files
 # ============================================================
 
+def write_country_files(results):
+    available = []
+    suspended = []
+    unknown = []
+    errors = []
 
-def write_countries(
-    destinations,
-):
-    COUNTRIES_FILE.write_text(
-        "\n".join(
-            country
-            for _, country in destinations
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    for result in results:
 
+        country = result["country"]
 
-def write_available(
-    countries,
-):
+        if result["status"] == "AVAILABLE":
+            available.append(country)
+
+        elif result["status"] in (
+            "UNAVAILABLE",
+            "ZERO",
+        ):
+            suspended.append(country)
+
+        elif result["status"] == "UNKNOWN":
+            unknown.append(country)
+
+        elif result["status"] == "ERROR":
+            errors.append(country)
+
     AVAILABLE_FILE.write_text(
-        "\n".join(countries)
-        + "\n",
+        "\n".join(available)
+        + ("\n" if available else ""),
         encoding="utf-8",
     )
 
-
-def write_suspended(
-    countries,
-):
     SUSPENDED_FILE.write_text(
-        "\n".join(countries)
-        + "\n",
+        "\n".join(suspended)
+        + ("\n" if suspended else ""),
+        encoding="utf-8",
+    )
+
+    UNKNOWN_FILE.write_text(
+        "\n".join(unknown)
+        + ("\n" if unknown else ""),
+        encoding="utf-8",
+    )
+
+    ERROR_FILE.write_text(
+        "\n".join(errors)
+        + ("\n" if errors else ""),
         encoding="utf-8",
     )
 
 
-def write_results(
+def write_output(
     destinations,
     results,
 ):
@@ -1056,10 +940,10 @@ def write_results(
         "========================================"
     )
     lines.append(
-        "Avionski prijenos"
+        "Prijenos: Avionski prijenos"
     )
     lines.append(
-        f"Tezina: {WEIGHT} g"
+        "Tezina: 10 g"
     )
     lines.append("")
 
@@ -1078,7 +962,7 @@ def write_results(
     lines.append("")
 
     lines.append(
-        "DOSTUPNE"
+        "CIJENE"
     )
     lines.append(
         "========================================"
@@ -1094,50 +978,89 @@ def write_results(
     lines.append("")
 
     lines.append(
-        "NEDOSTUPNE"
+        "NEDOSTUPNE ILI CIJENA 0 KM"
     )
     lines.append(
         "========================================"
     )
 
-    for result in results:
+    unavailable = [
+        result
+        for result in results
         if result["status"] in (
             "UNAVAILABLE",
             "ZERO",
-        ):
+        )
+    ]
+
+    if unavailable:
+        for result in unavailable:
             lines.append(
                 f'{result["country"]} | '
                 f'{result["detail"]}'
             )
+    else:
+        lines.append("Nema")
 
     lines.append("")
 
     lines.append(
-        "GRESKE"
+        "NEODREĐENO"
     )
     lines.append(
         "========================================"
     )
 
-    for result in results:
-        if result["status"] == "ERROR":
+    unknown = [
+        result
+        for result in results
+        if result["status"] == "UNKNOWN"
+    ]
+
+    if unknown:
+        for result in unknown:
             lines.append(
                 f'{result["country"]} | '
                 f'{result["detail"]}'
             )
+    else:
+        lines.append("Nema")
 
     lines.append("")
 
-    RESULTS_FILE.write_text(
+    lines.append(
+        "GREŠKE PRI PROVJERI"
+    )
+    lines.append(
+        "========================================"
+    )
+
+    errors = [
+        result
+        for result in results
+        if result["status"] == "ERROR"
+    ]
+
+    if errors:
+        for result in errors:
+            lines.append(
+                f'{result["country"]} | '
+                f'{result["detail"]}'
+            )
+    else:
+        lines.append("Nema")
+
+    lines.append("")
+
+    OUTPUT_FILE.write_text(
         "\n".join(lines),
         encoding="utf-8",
     )
 
 
 # ============================================================
-# MAIN
+# Main
 # ============================================================
-
 
 def main():
 
@@ -1152,8 +1075,7 @@ def main():
     # --------------------------------------------------------
 
     print(
-        "Opening calculator...",
-        flush=True,
+        "Opening calculator..."
     )
 
     response = session.get(
@@ -1163,19 +1085,30 @@ def main():
 
     response.raise_for_status()
 
-    soup = response_soup(
-        response
-    )
-
     print(
         f"Initial page received: "
-        f"{len(response.text):,} bytes",
-        flush=True,
+        f"{len(response.text):,} bytes"
+    )
+
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser",
+    )
+
+    Path(
+        "debug_original_page.html"
+    ).write_text(
+        response.text,
+        encoding="utf-8",
     )
 
     # --------------------------------------------------------
     # 2. Međunarodni promet
     # --------------------------------------------------------
+
+    print(
+        "2. Selecting Međunarodni promet..."
+    )
 
     soup = devexpress_tab_international(
         session,
@@ -1192,50 +1125,74 @@ def main():
     )
 
     # --------------------------------------------------------
-    # 4. Extract destination list
+    # 4. Read countries
     # --------------------------------------------------------
 
     destinations = get_destinations(
         soup
     )
 
+    print(
+        f"   Found {len(destinations)} "
+        f"destinations."
+    )
+
     if not destinations:
         raise RuntimeError(
-            "No destinations were found."
+            "Destination selector exists, "
+            "but contains no countries."
         )
 
-    print(
-        f"Found {len(destinations)} destinations.",
-        flush=True,
-    )
-
-    # This is the part your previous script proved works.
-    write_countries(
-        destinations
-    )
-
-    print(
-        f"Country list written to "
-        f"{COUNTRIES_FILE}",
-        flush=True,
-    )
-
     # --------------------------------------------------------
-    # 5. Enable air transport
+    # 5. Avionski prijenos
     # --------------------------------------------------------
 
-    soup = enable_air_transport(
+    soup = click_air_transport(
         session,
         soup,
     )
 
     # --------------------------------------------------------
-    # 6. Check destinations
+    # 6. 10 g
+    # --------------------------------------------------------
+
+    soup = set_weight(
+        session,
+        soup,
+        WEIGHT,
+    )
+
+    # Re-read destination list after weight POST.
+    #
+    # The application can regenerate the form during a
+    # WebForms postback.
+
+    try:
+        destinations = get_destinations(
+            soup
+        )
+
+    except RuntimeError:
+        print(
+            "   WARNING: destination selector "
+            "was not present after weight POST."
+        )
+        print(
+            "   Keeping destination list "
+            "from Dopisnica response."
+        )
+
+    print(
+        f"   Destination list contains "
+        f"{len(destinations)} countries."
+    )
+
+    # --------------------------------------------------------
+    # 7. Check every destination
     # --------------------------------------------------------
 
     print(
-        "Checking every destination...",
-        flush=True,
+        "3. Checking every destination..."
     )
 
     results = []
@@ -1249,23 +1206,14 @@ def main():
     ):
 
         print(
-            f"[{number}/{len(destinations)}] "
-            f"{country} ({code})",
+            f"   [{number}/{len(destinations)}] "
+            f"{country}",
             flush=True,
         )
 
         try:
 
-            # Select destination.
             soup = select_destination(
-                session,
-                soup,
-                code,
-            )
-
-            # Force air transport and 10 g
-            # in the calculation request.
-            soup = calculate(
                 session,
                 soup,
                 code,
@@ -1282,8 +1230,7 @@ def main():
             if error:
 
                 print(
-                    f"    -> SUSPENDED: "
-                    f"{error}",
+                    "      -> UNAVAILABLE",
                     flush=True,
                 )
 
@@ -1297,54 +1244,12 @@ def main():
                     }
                 )
 
-            elif price is not None:
-
-                value = price_value(
-                    price
-                )
-
-                if value == 0:
-
-                    print(
-                        "    -> ZERO: 0 KM",
-                        flush=True,
-                    )
-
-                    results.append(
-                        {
-                            "code": code,
-                            "country": country,
-                            "status": "ZERO",
-                            "price": price,
-                            "detail": (
-                                "Ukupna cijena 0 KM"
-                            ),
-                        }
-                    )
-
-                else:
-
-                    print(
-                        f"    -> AVAILABLE: "
-                        f"{price}",
-                        flush=True,
-                    )
-
-                    results.append(
-                        {
-                            "code": code,
-                            "country": country,
-                            "status": "AVAILABLE",
-                            "price": price,
-                            "detail": price,
-                        }
-                    )
-
-            else:
+            elif is_zero_price(
+                price
+            ):
 
                 print(
-                    "    -> ERROR: "
-                    "price not found",
+                    "      -> ZERO",
                     flush=True,
                 )
 
@@ -1352,7 +1257,44 @@ def main():
                     {
                         "code": code,
                         "country": country,
-                        "status": "ERROR",
+                        "status": "ZERO",
+                        "price": price,
+                        "detail": (
+                            "Ukupna cijena 0 KM"
+                        ),
+                    }
+                )
+
+            elif price:
+
+                print(
+                    f"      -> AVAILABLE "
+                    f"({price})",
+                    flush=True,
+                )
+
+                results.append(
+                    {
+                        "code": code,
+                        "country": country,
+                        "status": "AVAILABLE",
+                        "price": price,
+                        "detail": price,
+                    }
+                )
+
+            else:
+
+                print(
+                    "      -> UNKNOWN",
+                    flush=True,
+                )
+
+                results.append(
+                    {
+                        "code": code,
+                        "country": country,
+                        "status": "UNKNOWN",
                         "price": None,
                         "detail": (
                             "Ukupna cijena nije "
@@ -1364,7 +1306,7 @@ def main():
         except Exception as exc:
 
             print(
-                f"    -> ERROR: {exc}",
+                f"      -> ERROR: {exc}",
                 flush=True,
             )
 
@@ -1378,91 +1320,35 @@ def main():
                 }
             )
 
-            # Re-open the calculator state if a particular
-            # destination POST breaks the current soup.
-            #
-            # This prevents one bad country from poisoning every
-            # subsequent request.
-            try:
-
-                response = session.get(
-                    URL,
-                    timeout=90,
-                )
-
-                response.raise_for_status()
-
-                soup = response_soup(
-                    response
-                )
-
-                soup = devexpress_tab_international(
-                    session,
-                    soup,
-                )
-
-                soup = click_dopisnica(
-                    session,
-                    soup,
-                )
-
-                soup = enable_air_transport(
-                    session,
-                    soup,
-                )
-
-            except Exception as recovery_exc:
-
-                print(
-                    f"    Recovery failed: "
-                    f"{recovery_exc}",
-                    flush=True,
-                )
-
-        time.sleep(0.75)
+        time.sleep(0.5)
 
     # --------------------------------------------------------
-    # 7. Generate country files
+    # 8. Write files
     # --------------------------------------------------------
 
-    available = [
-        result["country"]
-        for result in results
-        if result["status"] == "AVAILABLE"
-    ]
-
-    suspended = [
-        result["country"]
-        for result in results
-        if result["status"] in (
-            "UNAVAILABLE",
-            "ZERO",
-        )
-    ]
-
-    write_available(
-        available
+    print(
+        "4. Writing result files..."
     )
 
-    write_suspended(
-        suspended
+    write_country_files(
+        results
     )
 
-    write_results(
+    write_output(
         destinations,
         results,
     )
 
     # --------------------------------------------------------
-    # 8. Summary
+    # 9. Summary
     # --------------------------------------------------------
 
-    available_count = sum(
+    available = sum(
         result["status"] == "AVAILABLE"
         for result in results
     )
 
-    suspended_count = sum(
+    unavailable = sum(
         result["status"] in (
             "UNAVAILABLE",
             "ZERO",
@@ -1470,7 +1356,12 @@ def main():
         for result in results
     )
 
-    error_count = sum(
+    unknown = sum(
+        result["status"] == "UNKNOWN"
+        for result in results
+    )
+
+    errors = sum(
         result["status"] == "ERROR"
         for result in results
     )
@@ -1486,26 +1377,19 @@ def main():
         f"Destinations: {len(results)}"
     )
     print(
-        f"Available:    {available_count}"
+        f"Available:    {available}"
     )
     print(
-        f"Suspended:    {suspended_count}"
+        f"Unavailable:  {unavailable}"
     )
     print(
-        f"Errors:       {error_count}"
-    )
-    print()
-    print(
-        f"Countries:    {COUNTRIES_FILE}"
+        f"Unknown:      {unknown}"
     )
     print(
-        f"Available:    {AVAILABLE_FILE}"
+        f"Errors:       {errors}"
     )
     print(
-        f"Suspended:    {SUSPENDED_FILE}"
-    )
-    print(
-        f"Results:      {RESULTS_FILE}"
+        f"Output:       {OUTPUT_FILE}"
     )
     print(
         "========================================"
