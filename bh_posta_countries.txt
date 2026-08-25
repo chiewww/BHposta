@@ -337,8 +337,6 @@ Makao, Kina
 Maldivi
 MARSHALL ISLANDS
 MARTINIQUE
-Mauricijus
-Mauritanija
 MAYOTTE
 MICRONESIA, FEDERATED STATES OF
 Monako
@@ -422,6 +420,6 @@ SUMMARY
 ========================================
 
 All countries: 262
-Suspended:     116
+Suspended:     114
 Unknown:       17
 Errors:        0
