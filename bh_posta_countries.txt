@@ -333,15 +333,6 @@ Madeira
 Makao, Kina
 Maldivi
 MARSHALL ISLANDS
-MARTINIQUE
-MAYOTTE
-MICRONESIA, FEDERATED STATES OF
-Monako
-MONTSERRAT
-Nauru
-NIUE
-NORTHERN MARIANA ISLANDS
-Nova Kaledonija
 Oman
 Otok Man
 PALAU
@@ -394,7 +385,8 @@ COCOS (KEELING) ISLANDS
 FRENCH SOUTHERN TERRITORIES
 HEARD ISLAND AND MCDONALD ISLANDS
 Italijanske poste
-NORFOLK ISLAND
+Katar
+MARTINIQUE
 Palestina
 RIA
 SVALBARD AND JAN MAYEN
@@ -415,6 +407,6 @@ SUMMARY
 ========================================
 
 All countries: 262
-Suspended:     109
-Unknown:       17
+Suspended:     100
+Unknown:       18
 Errors:        0
