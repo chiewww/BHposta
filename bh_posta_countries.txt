@@ -281,6 +281,7 @@ ANGUILLA
 Antiga i Barbuda
 Aruba
 ASCENSION
+Ascension
 Azori
 Bahami
 Bahrein
@@ -381,15 +382,15 @@ Vatikan
 Venecuela
 Vijetnam
 VIRGIN ISLANDS, BRITISH
+VIRGIN ISLANDS, U.S.
 WALLIS AND FUTUNA
+WESTERN SAHARA
 
 ========================================
 UNKNOWN COUNTRIES
 ========================================
 
-Ascension
 BOUVET ISLAND
-Channel Islands
 COCOS (KEELING) ISLANDS
 FRENCH SOUTHERN TERRITORIES
 HEARD ISLAND AND MCDONALD ISLANDS
@@ -401,9 +402,7 @@ SVALBARD AND JAN MAYEN
 TOKELAU
 Tristan Da Cunha
 UNITED STATES MINOR OUTLYING ISLANDS
-VIRGIN ISLANDS, U.S.
 Walis i Futuna
-WESTERN SAHARA
 
 ========================================
 ERROR COUNTRIES
@@ -415,6 +414,6 @@ SUMMARY
 ========================================
 
 All countries: 262
-Suspended:     109
-Unknown:       17
+Suspended:     112
+Unknown:       13
 Errors:        0
