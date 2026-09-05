@@ -2,419 +2,428 @@
 BH POSTA INTERNATIONAL DOPISNICA
 ========================================
 
-========================================
 ALL COUNTRIES
 ========================================
-
-???|Afganistan
-???|Albanija
-???|Alžir
-???|Amer.Djevičanska Ostrva
+1|Afganistan
+3|Albanija
+4|Alžir
+243|Amer.Djevičanska Ostrva
 5|AMERICAN SAMOA
 6|ANDORRA
 7|Angola
 8|ANGUILLA
-???|Antiga i Barbuda
+10|Antiga i Barbuda
 11|Argentina
-???|Armenija
+12|Armenija
 13|Aruba
-???|ASCENSION
-???|Ascension
-???|Australija
-???|Austrija
-???|Azerbejdžan
+185|ASCENSION
+185|Ascension
+14|Australija
+15|Austrija
+16|Azerbejdžan
 ???|Azori
-???|Bahami
-???|Bahrein
-???|Bangladeš
+17|Bahami
+18|Bahrein
+19|Bangladeš
 20|Barbados
-???|Belgija
+22|Belgija
 23|Belize
 24|Benin
 25|BERMUDA
-???|Bjelorusija
-???|Bocvana
-???|Bolivija
-???|BONAIRE
-???|Bosna i Hercegovina
+21|Bjelorusija
+30|Bocvana
+27|Bolivija
+28|BONAIRE
+29|Bosna i Hercegovina
 ???|BOUVET ISLAND
 31|Brazil
 32|BRITISH INDIAN OCEAN TERRITORY
-???|Brunei Daruselam
-???|Bugarska
+33|Brunei Daruselam
+34|Bugarska
 35|Burkina Faso
 36|Burundi
-???|Butan
-???|Cad
-???|Cap-Vert (Zeleni-Rt)
-???|Centralnoafricka Republika
+26|Butan
+43|Cad
+37|Cap-Vert (Zeleni-Rt)
+42|Centralnoafricka Republika
 ???|Channel Islands
 46|CHRISTMAS ISLAND
-???|Cile
-???|COCOS (KEELING) ISLANDS
+44|Cile
+47|COCOS (KEELING) ISLANDS
 52|COOK ISLANDS
-???|Crna Gora
-???|Češka Republika
-???|Danska
-???|Dominika
-???|Dominikanska Republika
-???|Džibuti
-???|Egipat
-???|Ekvador
-???|Ekvatorijalna Gvineja
-???|Eritreja
-???|Estonija
-???|ESVATINI (SVAZILEND)
-???|Etiopija
-???|FALKLAND ISLANDS (MALVINAS)
-???|Farski otoci
-???|Fidži
-???|Filipini
-???|Finska
-???|Francuska
+147|Crna Gora
+59|Češka Republika
+60|Danska
+62|Dominika
+63|Dominikanska Republika
+61|Džibuti
+65|Egipat
+64|Ekvador
+67|Ekvatorijalna Gvineja
+68|Eritreja
+69|Estonija
+70|ESVATINI (SVAZILEND)
+71|Etiopija
+72|FALKLAND ISLANDS (MALVINAS)
+73|Farski otoci
+74|Fidži
+174|Filipini
+75|Finska
+76|Francuska
 77|FRENCH GUIANA
 79|FRENCH SOUTHERN TERRITORIES
 80|Gabon
-???|Gambija
-???|Gana
+81|Gambija
+84|Gana
 85|Gibraltar
-???|Grcka
+86|Grcka
 88|Grenada
-???|Grenland
-???|Gruzija
+87|Grenland
+82|Gruzija
 90|GUAM
 92|Guernsey
-???|Gvadelupe
-???|Gvajana
-???|Gvatemala
-???|Gvineja
-???|Gvineja Bisao
+89|Gvadelupe
+95|Gvajana
+91|Gvatemala
+93|Gvineja
+94|Gvineja Bisao
 96|Haiti
 ???|HEARD ISLAND AND MCDONALD ISLANDS
-???|Holandija
-???|Holandski Antili
+155|Holandija
+13|Aruba
+28|BONAIRE
+57|Curaçao
+200|Sint Maarten
 97|Honduras
-???|Hong Kong, Kina
-???|Hrvatska
-???|Indija
-???|Indonezija
-???|Irak
+98|Hong Kong, Kina
+55|Hrvatska
+101|Indija
+102|Indonezija
+104|Irak
 103|Iran
-???|Irska
-???|Island
-???|Italija
+105|Irska
+100|Island
+108|Italija
 ???|Italijanske poste
-???|Izrael
-???|Jamajka
+107|Izrael
+109|Jamajka
 110|Japan
-???|Jemen
+246|Jemen
 111|Jersey
 112|Jordan
-???|Južna Džodžija i Sandwich otoci
-???|Južni Sudan
-???|Južnoafricka Republika
-???|Kajmanski otoci
-???|Kambodža
-???|Kamerun
-???|Kanada
+206|Južna Džodžija i Sandwich otoci
+207|Južni Sudan
+205|Južnoafricka Republika
+41|Kajmanski otoci
+38|Kambodža
+39|Kamerun
+40|Kanada
 ???|Kanarski otoci
-???|Katar
-???|Kazahstan
-???|Kenija
-???|Kina
-???|Kipar
-???|Kirgistan
+179|Katar
+113|Kazahstan
+114|Kenija
+45|Kina
+58|Kipar
+120|Kirgistan
 115|Kiribati
-???|Kolumbija
-???|Komori
-???|Kongo (Dem.Rep.)
-???|Kongo (Rep.)
-???|Koreja (Dem.Rep.)
-???|Koreja (Rep.)
+48|Kolumbija
+49|Komori
+51|Kongo (Dem.Rep.)
+50|Kongo (Rep.)
+116|Koreja (Dem.Rep.)
+117|Koreja (Rep.)
 118|Kosovo
-???|Kostarika
-???|Kuba
-???|Kurakao
-???|Kuvajt
+53|Kostarika
+56|Kuba
+57|Kurakao
+119|Kuvajt
 121|Laos
-???|Latvija
-???|Lesoto
-???|Liban
-???|Liberija
-???|Libija
-???|Lihtenštajn
-???|Litvanija
-???|Luksemburg
-???|Madagaskar
+122|Latvija
+124|Lesoto
+123|Liban
+125|Liberija
+126|Libija
+127|Lihtenštajn
+128|Litvanija
+129|Luksemburg
+131|Madagaskar
 ???|Madeira
-???|Mađarska
-???|Makao, Kina
-???|Malavi
-???|Maldivi
-???|Malezija
+99|Mađarska
+130|Makao, Kina
+132|Malavi
+134|Maldivi
+133|Malezija
 135|Mali
 136|Malta
-???|Maroko
+149|Maroko
 137|MARSHALL ISLANDS
 138|MARTINIQUE
-???|Mauricijus
-???|Mauritanija
+140|Mauricijus
+139|Mauritanija
 141|MAYOTTE
-???|Meksiko
-???|Mianmar
-???|MICRONESIA, FEDERATED STATES OF
-???|Moldavija
-???|Monako
-???|Mongolija
+142|Meksiko
+151|Mianmar
+143|MICRONESIA, FEDERATED STATES OF
+144|Moldavija
+145|Monako
+146|Mongolija
 148|MONTSERRAT
-???|Mozambik
-???|Namibija
-???|Nauru
+150|Mozambik
+152|Namibija
+153|Nauru
 154|Nepal
 159|Niger
-???|Nigerija
-???|Nikaragva
+160|Nigerija
+158|Nikaragva
 161|NIUE
 162|NORFOLK ISLAND
 163|NORTHERN MARIANA ISLANDS
-???|Norveška
-???|Nova Kaledonija
-???|Novi Zeland
-???|Njemacka
-???|Obala Slonovace
+165|Norveška
+156|Nova Kaledonija
+157|Novi Zeland
+83|Njemacka
+54|Obala Slonovace
 166|Oman
-???|Otok Man
+106|Otok Man
 167|Pakistan
 168|PALAU
-???|Palestina
+169|Palestina
 170|Panama
-???|Papua Nova Gvineja
-???|Paragvaj
+171|Papua Nova Gvineja
+172|Paragvaj
 173|Peru
 175|PITCAIRN
-???|Polinezija
-???|Poljska
-???|Portoriko
+78|Polinezija
+176|Poljska
+178|Portoriko
 177|Portugal
-???|Republika Sjeverna Makedonija
-???|REUNION
+164|Republika Sjeverna Makedonija
+180|REUNION
 ???|RIA
-???|Ruanda
-???|Rumunija
-???|Ruska Federacija
-???|S. Martin
-???|SAD Sjedinjene Americke Države
-???|SAINT PIERRE AND MIQUELON
-???|Salvador
+183|Ruanda
+181|Rumunija
+182|Ruska Federacija
+188|S. Martin
+235|SAD Sjedinjene Americke Države
+189|SAINT PIERRE AND MIQUELON
+66|Salvador
 191|Samoa
 192|San Marino
-???|Saudijska Arabija
-???|Sejšeli
+194|Saudijska Arabija
+197|Sejšeli
 195|Senegal
-???|Siera Leone
-???|Singapur
-???|Sirija
-???|Slovacka
-???|Slovenija
-???|Solomonski otoci
-???|Somalija
-???|Srbija
+198|Siera Leone
+199|Singapur
+215|Sirija
+201|Slovacka
+202|Slovenija
+203|Solomonski otoci
+204|Somalija
+196|Srbija
 210|Sudan
-???|Surinam
+211|Surinam
 212|SVALBARD AND JAN MAYEN
-???|Sveta Helena
-???|Sveta Lucija
-???|Sveti Vincent i Grenadine
-???|Sveti Barthelemy
-???|SVETI EUSTATIUS
-???|Sveti Kits i Nevis
-???|Sveti Tome i Principe
-???|Španija
-???|Šri Lanka
-???|Švedska
-???|Švicarska
-???|Tadžikistan
-???|TAHITI
-???|Tajland
-???|Tajvan - Kina
-???|Tanzanija
-???|Timor
+185|Sveta Helena
+187|Sveta Lucija
+190|Sveti Vincent i Grenadine
+184|Sveti Barthelemy
+28|SVETI EUSTATIUS
+186|Sveti Kits i Nevis
+193|Sveti Tome i Principe
+208|Španija
+209|Šri Lanka
+213|Švedska
+214|Švicarska
+217|Tadžikistan
+78|TAHITI
+219|Tajland
+216|Tajvan - Kina
+218|Tanzanija
+220|Timor
 221|Togo
 222|TOKELAU
 223|Tonga
-???|Trinidad i Tobago
-???|TRISTAN DA CUNHA
-???|Tristan Da Cunha
-???|Tunis
+224|Trinidad i Tobago
+185|TRISTAN DA CUNHA
+185|Tristan Da Cunha
+225|Tunis
 227|Turkmenistan
 228|TURKS AND CAICOS ISLANDS
-???|Turska
+226|Turska
 229|Tuvalu
 230|Uganda
-???|Ujedinjeni Arapski Emirati
-???|Ukrajina
-???|UNITED STATES MINOR OUTLYING ISLANDS
-???|Urugvaj
+232|Ujedinjeni Arapski Emirati
+231|Ukrajina
+236|UNITED STATES MINOR OUTLYING ISLANDS
+234|Urugvaj
 237|Uzbekistan
 238|Vanuatu
-???|Vatikan
-???|Velika Britanija
-???|Venecuela
-???|Vijetnam
-???|VIRGIN ISLANDS, BRITISH
-???|VIRGIN ISLANDS, U.S.
-???|Walis i Futuna
-???|WALLIS AND FUTUNA
+239|Vatikan
+233|Velika Britanija
+240|Venecuela
+241|Vijetnam
+242|VIRGIN ISLANDS, BRITISH
+243|VIRGIN ISLANDS, U.S.
+244|Walis i Futuna
+244|WALLIS AND FUTUNA
 245|WESTERN SAHARA
-???|Zambija
-???|Zimbabve
+247|Zambija
+248|Zimbabve
 
-========================================
 SUSPENDED COUNTRIES
 ========================================
-
-???|Afganistan
-???|Amer.Djevičanska Ostrva
+1|Afganistan
+243|Amer.Djevičanska Ostrva
 5|AMERICAN SAMOA
 6|ANDORRA
 8|ANGUILLA
-???|Antiga i Barbuda
+10|Antiga i Barbuda
 13|Aruba
-???|ASCENSION
+185|ASCENSION
 ???|Azori
-???|Bahami
-???|Bahrein
+17|Bahami
+18|Bahrein
 20|Barbados
 25|BERMUDA
-???|BONAIRE
-???|Bosna i Hercegovina
+28|BONAIRE
+29|Bosna i Hercegovina
 32|BRITISH INDIAN OCEAN TERRITORY
-???|Butan
-???|Cap-Vert (Zeleni-Rt)
+26|Butan
+37|Cap-Vert (Zeleni-Rt)
 46|CHRISTMAS ISLAND
 52|COOK ISLANDS
-???|Dominika
-???|Dominikanska Republika
-???|Ekvador
-???|Ekvatorijalna Gvineja
-???|Etiopija
-???|FALKLAND ISLANDS (MALVINAS)
-???|Farski otoci
-???|Fidži
+62|Dominika
+63|Dominikanska Republika
+64|Ekvador
+67|Ekvatorijalna Gvineja
+71|Etiopija
+72|FALKLAND ISLANDS (MALVINAS)
+73|Farski otoci
+74|Fidži
 77|FRENCH GUIANA
-???|Gana
+84|Gana
 85|Gibraltar
 88|Grenada
-???|Grenland
+87|Grenland
 90|GUAM
 92|Guernsey
-???|Gvadelupe
-???|Holandski Antili
-???|Irak
+89|Gvadelupe
+13|Aruba
+28|BONAIRE
+57|Curaçao
+200|Sint Maarten
+104|Irak
 103|Iran
-???|Izrael
-???|Jamajka
-???|Jemen
+107|Izrael
+109|Jamajka
+246|Jemen
 111|Jersey
-???|Južna Džodžija i Sandwich otoci
-???|Južni Sudan
-???|Kajmanski otoci
+206|Južna Džodžija i Sandwich otoci
+207|Južni Sudan
+41|Kajmanski otoci
 ???|Kanarski otoci
-???|Kenija
+114|Kenija
 115|Kiribati
-???|Komori
-???|Kongo (Dem.Rep.)
-???|Kongo (Rep.)
-???|Kuba
-???|Kurakao
-???|Lesoto
-???|Liban
+49|Komori
+51|Kongo (Dem.Rep.)
+50|Kongo (Rep.)
+56|Kuba
+57|Kurakao
+124|Lesoto
+123|Liban
 ???|Madeira
-???|Makao, Kina
-???|Maldivi
+130|Makao, Kina
+134|Maldivi
 137|MARSHALL ISLANDS
 138|MARTINIQUE
 141|MAYOTTE
-???|MICRONESIA, FEDERATED STATES OF
-???|Monako
+143|MICRONESIA, FEDERATED STATES OF
+145|Monako
 148|MONTSERRAT
-???|Nauru
+153|Nauru
 161|NIUE
 163|NORTHERN MARIANA ISLANDS
-???|Nova Kaledonija
+156|Nova Kaledonija
 166|Oman
-???|Otok Man
+106|Otok Man
 168|PALAU
-???|Paragvaj
+172|Paragvaj
 173|Peru
 175|PITCAIRN
-???|Polinezija
-???|Portoriko
-???|REUNION
-???|S. Martin
-???|SAINT PIERRE AND MIQUELON
+78|Polinezija
+178|Portoriko
+180|REUNION
+188|S. Martin
+189|SAINT PIERRE AND MIQUELON
 191|Samoa
 192|San Marino
-???|Sejšeli
-???|Sirija
-???|Solomonski otoci
-???|Somalija
+197|Sejšeli
+215|Sirija
+203|Solomonski otoci
+204|Somalija
 210|Sudan
-???|Sveta Helena
-???|Sveta Lucija
-???|Sveti Vincent i Grenadine
-???|Sveti Barthelemy
-???|SVETI EUSTATIUS
-???|Sveti Kits i Nevis
-???|Sveti Tome i Principe
-???|TAHITI
-???|Tajvan - Kina
-???|Timor
+185|Sveta Helena
+187|Sveta Lucija
+190|Sveti Vincent i Grenadine
+184|Sveti Barthelemy
+28|SVETI EUSTATIUS
+186|Sveti Kits i Nevis
+193|Sveti Tome i Principe
+78|TAHITI
+216|Tajvan - Kina
+220|Timor
 223|Tonga
-???|Trinidad i Tobago
-???|TRISTAN DA CUNHA
+224|Trinidad i Tobago
+185|TRISTAN DA CUNHA
 228|TURKS AND CAICOS ISLANDS
 229|Tuvalu
-???|Urugvaj
+234|Urugvaj
 238|Vanuatu
-???|Vatikan
-???|Venecuela
-???|Vijetnam
-???|VIRGIN ISLANDS, BRITISH
-???|WALLIS AND FUTUNA
+239|Vatikan
+240|Venecuela
+241|Vijetnam
+242|VIRGIN ISLANDS, BRITISH
+244|WALLIS AND FUTUNA
 
-========================================
 UNKNOWN COUNTRIES
 ========================================
-
-???|Ascension
+185|Ascension
 ???|BOUVET ISLAND
 ???|Channel Islands
-???|COCOS (KEELING) ISLANDS
+47|COCOS (KEELING) ISLANDS
 79|FRENCH SOUTHERN TERRITORIES
 ???|HEARD ISLAND AND MCDONALD ISLANDS
 ???|Italijanske poste
 162|NORFOLK ISLAND
-???|Palestina
+169|Palestina
 ???|RIA
 212|SVALBARD AND JAN MAYEN
 222|TOKELAU
-???|Tristan Da Cunha
-???|UNITED STATES MINOR OUTLYING ISLANDS
-???|VIRGIN ISLANDS, U.S.
-???|Walis i Futuna
+185|Tristan Da Cunha
+236|UNITED STATES MINOR OUTLYING ISLANDS
+243|VIRGIN ISLANDS, U.S.
+244|Walis i Futuna
 245|WESTERN SAHARA
 
-========================================
 ERROR COUNTRIES
 ========================================
+(none)
 
-
-========================================
 SUMMARY
 ========================================
+BH Posta countries: 262
+Suspended: 109
+Unknown: 17
+Errors: 0
+Countries without Postcrossing mapping: 8
 
-All countries: 262
-Suspended:     109
-Unknown:       17
-Errors:        0
+UNMAPPED COUNTRY NAMES
+========================================
+???|Azori
+???|BOUVET ISLAND
+???|Channel Islands
+???|HEARD ISLAND AND MCDONALD ISLANDS
+???|Italijanske poste
+???|Kanarski otoci
+???|Madeira
+???|RIA
