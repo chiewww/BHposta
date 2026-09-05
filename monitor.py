@@ -1,6 +1,7 @@
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 from playwright.sync_api import (
@@ -29,412 +30,593 @@ SUSPENDED_MESSAGE = (
 
 WEIGHT = "10"
 
-# Keep this reasonably small. The site can be slow, but waiting
-# several seconds after every country makes 262 countries take
-# a very long time.
 COUNTRY_WAIT_MS = 350
-
-# Maximum total runtime for the monitor itself.
 MAX_RUNTIME_SECONDS = 22 * 60
 
 
 # ============================================================
-# Postcrossing country numbers
+# POSTCROSSING LIST
+#
+# Authoritative list supplied by the user.
+# Number -> Postcrossing name
 # ============================================================
 
 POSTCROSSING_NUMBERS = {
-    "Afghanistan": 1,
-    "Åland Islands": 2,
-    "Albania": 3,
-    "Algeria": 4,
-    "American Samoa": 5,
-    "Andorra": 6,
+    1: "Afganistan",
+    2: "Åland Islands",
+    3: "Albanija",
+    4: "Alžir",
+    5: "AMERICAN SAMOA",
+    6: "ANDORRA",
+    7: "Angola",
+    8: "ANGUILLA",
+    9: "Antarctica",
+    10: "Antiga i Barbuda",
+    11: "Argentina",
+    12: "Armenija",
+    13: "Aruba",
+    14: "Australija",
+    15: "Austrija",
+    16: "Azerbejdžan",
+    17: "Bahami",
+    18: "Bahrein",
+    19: "Bangladeš",
+    20: "Barbados",
+    21: "Bjelorusija",
+    22: "Belgija",
+    23: "Belize",
+    24: "Benin",
+    25: "Bermuda",
+    26: "Butan",
+    27: "Bolivija",
+    28: "BONAIRE",
+    29: "Bosna i Hercegovina",
+    30: "Bocvana",
+    31: "Brazil",
+    32: "BRITISH INDIAN OCEAN TERRITORY",
+    33: "Brunei Daruselam",
+    34: "Bugarska",
+    35: "Burkina Faso",
+    36: "Burundi",
+    37: "Cap-Vert (Zeleni-Rt)",
+    38: "Kambodža",
+    39: "Kamerun",
+    40: "Kanada",
+    41: "Kajmanski otoci",
+    42: "Centralnoafricka Republika",
+    43: "Cad",
+    44: "Cile",
+    45: "Kina",
+    46: "Christmas Island",
+    47: "COCOS (KEELING) ISLANDS",
+    48: "Kolumbija",
+    49: "Komori",
+    50: "Kongo (Rep.)",
+    51: "Kongo (Dem.Rep.)",
+    52: "COOK ISLANDS",
+    53: "Costa Rica",
+    54: "Obala Slonovace",
+    55: "Hrvatska",
+    56: "Cuba",
+    57: "Curaçao",
+    58: "Kipar",
+    59: "Češka Republika",
+    60: "Danska",
+    61: "Džibuti",
+    62: "Dominika",
+    63: "Dominikanska Republika",
+    64: "Ekvador",
+    65: "Egipat",
+    66: "Salvador",
+    67: "Ekvatorijalna Gvineja",
+    68: "Eritreja",
+    69: "Estonija",
+    70: "ESVATINI (SVAZILEND)",
+    71: "Etiopija",
+    72: "FALKLAND ISLANDS (MALVINAS)",
+    73: "Farski otoci",
+    74: "Fidži",
+    75: "Finska",
+    76: "Francuska",
+    77: "French Guiana",
+    78: "Polinezija",
+    79: "French Southern Territories",
+    80: "Gabon",
+    81: "Gambija",
+    82: "Gruzija",
+    83: "Njemacka",
+    84: "Gana",
+    85: "Gibraltar",
+    86: "Grcka",
+    87: "Grenland",
+    88: "Grenada",
+    89: "Gvadelupe",
+    90: "Guam",
+    91: "Gvatemala",
+    92: "Guernsey",
+    93: "Gvineja",
+    94: "Gvineja Bisao",
+    95: "Gvajana",
+    96: "Haiti",
+    97: "Honduras",
+    98: "Hong Kong, Kina",
+    99: "Hungary",
+    100: "Island",
+    101: "Indija",
+    102: "Indonezija",
+    103: "Iran",
+    104: "Irak",
+    105: "Irska",
+    106: "Otok Man",
+    107: "Izrael",
+    108: "Italija",
+    109: "Jamajka",
+    110: "Japan",
+    111: "Jersey",
+    112: "Jordan",
+    113: "Kazahstan",
+    114: "Kenija",
+    115: "Kiribati",
+    116: "Koreja (Dem.Rep.)",
+    117: "Koreja (Rep.)",
+    118: "Kosovo",
+    119: "Kuvajt",
+    120: "Kirgistan",
+    121: "Laos",
+    122: "Latvija",
+    123: "Liban",
+    124: "Lesoto",
+    125: "Liberija",
+    126: "Libija",
+    127: "Lihtenštajn",
+    128: "Litvanija",
+    129: "Luksemburg",
+    130: "Macao",
+    131: "Madagaskar",
+    132: "Malavi",
+    133: "Malezija",
+    134: "Maldivi",
+    135: "Mali",
+    136: "Malta",
+    137: "Marshall Islands",
+    138: "Martinique",
+    139: "Mauritanija",
+    140: "Mauricijus",
+    141: "Mayotte",
+    142: "Meksiko",
+    143: "MICRONESIA, FEDERATED STATES OF",
+    144: "Moldavija",
+    145: "Monako",
+    146: "Mongolia",
+    147: "Crna Gora",
+    148: "Montserrat",
+    149: "Maroko",
+    150: "Mozambik",
+    151: "Mianmar",
+    152: "Namibija",
+    153: "Nauru",
+    154: "Nepal",
+    155: "Holandija",
+    156: "Nova Kaledonija",
+    157: "Novi Zeland",
+    158: "Nikaragva",
+    159: "Niger",
+    160: "Nigerija",
+    161: "Niue",
+    162: "NORFOLK ISLAND",
+    163: "NORTHERN MARIANA ISLANDS",
+    164: "Republika Sjeverna Makedonija",
+    165: "Norveška",
+    166: "Oman",
+    167: "Pakistan",
+    168: "Palau",
+    169: "Palestine",
+    170: "Panama",
+    171: "Papua Nova Gvineja",
+    172: "Paragvaj",
+    173: "Peru",
+    174: "Filipini",
+    175: "PITCAIRN",
+    176: "Poljska",
+    177: "Portugal",
+    178: "Puerto Rico",
+    179: "Katar",
+    180: "REUNION",
+    181: "Rumunija",
+    182: "Ruska Federacija",
+    183: "Ruanda",
+    184: "Sveti Barthelemy",
+    185: "ASCENSION",
+    186: "Sveti Kits i Nevis",
+    187: "Sveta Lucija",
+    188: "S. Martin",
+    189: "SAINT PIERRE AND MIQUELON",
+    190: "Sveti Vincent i Grenadine",
+    191: "Samoa",
+    192: "San Marino",
+    193: "Sveti Tome i Principe",
+    194: "Saudijska Arabija",
+    195: "Senegal",
+    196: "Srbija",
+    197: "Sejšeli",
+    198: "Siera Leone",
+    199: "Singapur",
+    200: "Sint Maarten",
+    201: "Slovacka",
+    202: "Slovenija",
+    203: "Solomonski otoci",
+    204: "Somalija",
+    205: "Južnoafricka Republika",
+    206: "Južna Džodžija i Sandwich otoci",
+    207: "Južni Sudan",
+    208: "Španija",
+    209: "Šri Lanka",
+    210: "Sudan",
+    211: "Suriname",
+    212: "SVALBARD AND JAN MAYEN",
+    213: "Švedska",
+    214: "Švicarska",
+    215: "Sirija",
+    216: "Tajvan - Kina",
+    217: "Tadžikistan",
+    218: "Tanzanija",
+    219: "Tajland",
+    220: "Timor",
+    221: "Togo",
+    222: "Tokelau",
+    223: "Tonga",
+    224: "Trinidad i Tobago",
+    225: "Tunis",
+    226: "Turska",
+    227: "Turkmenistan",
+    228: "TURKS AND CAICOS ISLANDS",
+    229: "Tuvalu",
+    230: "Uganda",
+    231: "Ukrajina",
+    232: "Ujedinjeni Arapski Emirati",
+    233: "Velika Britanija",
+    234: "Urugvaj",
+    235: "SAD Sjedinjene Americke Države",
+    236: "UNITED STATES MINOR OUTLYING ISLANDS",
+    237: "Uzbekistan",
+    238: "Vanuatu",
+    239: "Vatikan",
+    240: "Venecuela",
+    241: "Vijetnam",
+    242: "VIRGIN ISLANDS, BRITISH",
+    243: "Amer.Djevičanska Ostrva",
+    244: "Walis i Futuna",
+    245: "WESTERN SAHARA",
+    246: "Jemen",
+    247: "Zambija",
+    248: "Zimbabve",
+}
+
+
+# ============================================================
+# BH POSTA -> POSTCROSSING
+#
+# These are the ACTUAL BH Posta names from the user's output.
+#
+# None = no separate Postcrossing destination in the supplied
+# 1-248 list.
+#
+# list[int] = one BH Posta destination corresponds to several
+# Postcrossing destinations.
+# ============================================================
+
+BH_POSTA_TO_POSTCROSSING = {
+    "Afganistan": 1,
+    "Albanija": 3,
+    "Alžir": 4,
+    "Amer.Djevičanska Ostrva": 243,
+    "AMERICAN SAMOA": 5,
+    "ANDORRA": 6,
     "Angola": 7,
-    "Anguilla": 8,
-    "Antarctica": 9,
-    "Antigua & Barbuda": 10,
+    "ANGUILLA": 8,
+    "Antiga i Barbuda": 10,
     "Argentina": 11,
-    "Armenia": 12,
+    "Armenija": 12,
     "Aruba": 13,
-    "Australia": 14,
-    "Austria": 15,
-    "Azerbaijan": 16,
-    "Bahamas": 17,
-    "Bahrain": 18,
-    "Bangladesh": 19,
+
+    "ASCENSION": 185,
+    "Ascension": 185,
+
+    "Australija": 14,
+    "Austrija": 15,
+    "Azerbejdžan": 16,
+
+    "Azori": None,
+
+    "Bahami": 17,
+    "Bahrein": 18,
+    "Bangladeš": 19,
     "Barbados": 20,
-    "Belarus": 21,
-    "Belgium": 22,
+    "Belgija": 22,
     "Belize": 23,
     "Benin": 24,
-    "Bermuda": 25,
-    "Bhutan": 26,
-    "Bolivia": 27,
-    "Bonaire, Sint Eustatius and Saba": 28,
-    "Bosnia-Herzegovina": 29,
-    "Botswana": 30,
+    "BERMUDA": 25,
+    "Bjelorusija": 21,
+    "Bocvana": 30,
+    "Bolivija": 27,
+    "BONAIRE": 28,
+    "Bosna i Hercegovina": 29,
+
+    "BOUVET ISLAND": None,
+
     "Brazil": 31,
-    "British Indian Ocean Territory": 32,
-    "Brunei": 33,
-    "Bulgaria": 34,
+    "BRITISH INDIAN OCEAN TERRITORY": 32,
+    "Brunei Daruselam": 33,
+    "Bugarska": 34,
     "Burkina Faso": 35,
     "Burundi": 36,
-    "Cabo Verde": 37,
-    "Cambodia": 38,
-    "Cameroon": 39,
-    "Canada": 40,
-    "Cayman Islands": 41,
-    "Central African Republic": 42,
-    "Chad": 43,
-    "Chile": 44,
-    "China": 45,
-    "Christmas Island": 46,
-    "Cocos Islands": 47,
-    "Colombia": 48,
-    "Comoros": 49,
-    "Congo": 50,
-    "Dem. Rep. Of Congo": 51,
-    "Cook Islands": 52,
-    "Costa Rica": 53,
-    "Côte d'Ivoire": 54,
-    "Croatia": 55,
-    "Cuba": 56,
-    "Curaçao": 57,
-    "Cyprus": 58,
-    "Czechia": 59,
-    "Denmark": 60,
-    "Djibouti": 61,
-    "Dominica": 62,
-    "Dominican Republic": 63,
-    "Ecuador": 64,
-    "Egypt": 65,
-    "El Salvador": 66,
-    "Equatorial Guinea": 67,
-    "Eritrea": 68,
-    "Estonia": 69,
-    "Eswatini /Swaziland": 70,
-    "Ethiopia": 71,
-    "Falkland Islands /Malvinas": 72,
-    "Faroe Islands": 73,
-    "Fiji": 74,
-    "Finland": 75,
-    "France": 76,
-    "French Guiana": 77,
-    "French Polynesia": 78,
-    "French Southern Territories": 79,
+    "Butan": 26,
+    "Cad": 43,
+    "Cap-Vert (Zeleni-Rt)": 37,
+    "Centralnoafricka Republika": 42,
+
+    "Channel Islands": None,
+
+    "CHRISTMAS ISLAND": 46,
+    "Cile": 44,
+    "COCOS (KEELING) ISLANDS": 47,
+    "COOK ISLANDS": 52,
+    "Crna Gora": 147,
+    "Češka Republika": 59,
+    "Danska": 60,
+    "Dominika": 62,
+    "Dominikanska Republika": 63,
+    "Džibuti": 61,
+    "Egipat": 65,
+    "Ekvador": 64,
+    "Ekvatorijalna Gvineja": 67,
+    "Eritreja": 68,
+    "Estonija": 69,
+    "ESVATINI (SVAZILEND)": 70,
+    "Etiopija": 71,
+    "FALKLAND ISLANDS (MALVINAS)": 72,
+    "Farski otoci": 73,
+    "Fidži": 74,
+    "Filipini": 174,
+    "Finska": 75,
+    "Francuska": 76,
+    "FRENCH GUIANA": 77,
+    "FRENCH SOUTHERN TERRITORIES": 79,
     "Gabon": 80,
-    "Gambia": 81,
-    "Georgia": 82,
-    "Germany": 83,
-    "Ghana": 84,
+    "Gambija": 81,
+    "Gana": 84,
     "Gibraltar": 85,
-    "Greece": 86,
-    "Greenland": 87,
+    "Grcka": 86,
     "Grenada": 88,
-    "Guadeloupe": 89,
-    "Guam": 90,
-    "Guatemala": 91,
+    "Grenland": 87,
+    "Gruzija": 82,
+    "GUAM": 90,
     "Guernsey": 92,
-    "Guinea": 93,
-    "Guinea-Bissau": 94,
-    "Guyana": 95,
+    "Gvadelupe": 89,
+    "Gvajana": 95,
+    "Gvatemala": 91,
+    "Gvineja": 93,
+    "Gvineja Bisao": 94,
     "Haiti": 96,
+
+    "HEARD ISLAND AND MCDONALD ISLANDS": None,
+
+    "Holandija": 155,
+
+    # Four Postcrossing destinations.
+    "Holandski Antili": [
+        13,   # Aruba
+        28,   # BONAIRE
+        57,   # Curaçao
+        200,  # Sint Maarten
+    ],
+
     "Honduras": 97,
-    "Hong Kong": 98,
-    "Hungary": 99,
-    "Iceland": 100,
-    "India": 101,
-    "Indonesia": 102,
+    "Hong Kong, Kina": 98,
+    "Hrvatska": 55,
+    "Indija": 101,
+    "Indonezija": 102,
+    "Irak": 104,
     "Iran": 103,
-    "Iraq": 104,
-    "Ireland": 105,
-    "Isle of Man": 106,
-    "Israel": 107,
-    "Italy": 108,
-    "Jamaica": 109,
+    "Irska": 105,
+    "Island": 100,
+
+    "Italija": 108,
+
+    "Italijanske poste": None,
+
+    "Izrael": 107,
+    "Jamajka": 109,
     "Japan": 110,
+    "Jemen": 246,
     "Jersey": 111,
     "Jordan": 112,
-    "Kazakhstan": 113,
-    "Kenya": 114,
+    "Južna Džodžija i Sandwich otoci": 206,
+    "Južni Sudan": 207,
+    "Južnoafricka Republika": 205,
+    "Kajmanski otoci": 41,
+    "Kambodža": 38,
+    "Kamerun": 39,
+    "Kanada": 40,
+
+    "Kanarski otoci": None,
+
+    "Katar": 179,
+    "Kazahstan": 113,
+    "Kenija": 114,
+    "Kina": 45,
+    "Kipar": 58,
+    "Kirgistan": 120,
     "Kiribati": 115,
-    "Korea(North)": 116,
-    "Korea(South)": 117,
+    "Kolumbija": 48,
+    "Komori": 49,
+    "Kongo (Dem.Rep.)": 51,
+    "Kongo (Rep.)": 50,
+    "Koreja (Dem.Rep.)": 116,
+    "Koreja (Rep.)": 117,
     "Kosovo": 118,
-    "Kuwait": 119,
-    "Kyrgyzstan": 120,
+    "Kostarika": 53,
+    "Kuba": 56,
+    "Kurakao": 57,
+    "Kuvajt": 119,
     "Laos": 121,
-    "Latvia": 122,
-    "Lebanon": 123,
-    "Lesotho": 124,
-    "Liberia": 125,
-    "Libya": 126,
-    "Liechtenstein": 127,
-    "Lithuania": 128,
-    "Luxembourg": 129,
-    "Macao": 130,
-    "Madagascar": 131,
-    "Malawi": 132,
-    "Malaysia": 133,
-    "Maldives": 134,
+    "Latvija": 122,
+    "Lesoto": 124,
+    "Liban": 123,
+    "Liberija": 125,
+    "Libija": 126,
+    "Lihtenštajn": 127,
+    "Litvanija": 128,
+    "Luksemburg": 129,
+    "Madagaskar": 131,
+
+    "Madeira": None,
+
+    "Mađarska": 99,
+    "Makao, Kina": 130,
+    "Malavi": 132,
+    "Maldivi": 134,
+    "Malezija": 133,
     "Mali": 135,
     "Malta": 136,
-    "Marshall Islands": 137,
-    "Martinique": 138,
-    "Mauritania": 139,
-    "Mauritius": 140,
-    "Mayotte": 141,
-    "Mexico": 142,
-    "Micronesia": 143,
-    "Moldova": 144,
-    "Monaco": 145,
-    "Mongolia": 146,
-    "Montenegro": 147,
-    "Montserrat": 148,
-    "Morocco": 149,
-    "Mozambique": 150,
-    "Myanmar": 151,
-    "Namibia": 152,
-    "Nauru / Naoero": 153,
+    "Maroko": 149,
+    "MARSHALL ISLANDS": 137,
+    "MARTINIQUE": 138,
+    "Mauricijus": 140,
+    "Mauritanija": 139,
+    "MAYOTTE": 141,
+    "Meksiko": 142,
+    "Mianmar": 151,
+    "MICRONESIA, FEDERATED STATES OF": 143,
+    "Moldavija": 144,
+    "Monako": 145,
+    "Mongolija": 146,
+    "MONTSERRAT": 148,
+    "Mozambik": 150,
+    "Namibija": 152,
+    "Nauru": 153,
     "Nepal": 154,
-    "Netherlands": 155,
-    "New Caledonia": 156,
-    "New Zealand": 157,
-    "Nicaragua": 158,
     "Niger": 159,
-    "Nigeria": 160,
-    "Niue": 161,
-    "Norfolk Island": 162,
-    "Northern Mariana Islands": 163,
-    "North Macedonia": 164,
-    "Norway": 165,
+    "Nigerija": 160,
+    "Nikaragva": 158,
+    "NIUE": 161,
+    "NORFOLK ISLAND": 162,
+    "NORTHERN MARIANA ISLANDS": 163,
+    "Norveška": 165,
+    "Nova Kaledonija": 156,
+    "Novi Zeland": 157,
+    "Njemacka": 83,
+    "Obala Slonovace": 54,
     "Oman": 166,
+    "Otok Man": 106,
     "Pakistan": 167,
-    "Palau": 168,
-    "Palestine": 169,
+    "PALAU": 168,
+    "Palestina": 169,
     "Panama": 170,
-    "Papua New Guinea": 171,
-    "Paraguay": 172,
+    "Papua Nova Gvineja": 171,
+    "Paragvaj": 172,
     "Peru": 173,
-    "Philippines": 174,
-    "Pitcairn": 175,
-    "Poland": 176,
+    "PITCAIRN": 175,
+
+    "Polinezija": 78,
+    "TAHITI": 78,
+
+    "Poljska": 176,
+    "Portoriko": 178,
     "Portugal": 177,
-    "Puerto Rico": 178,
-    "Qatar": 179,
-    "Réunion": 180,
-    "Romania": 181,
-    "Russia": 182,
-    "Rwanda": 183,
-    "Saint Barthélemy": 184,
-    "Saint Helena, Ascension and Tristan da Cunha": 185,
-    "Saint Kitts and Nevis": 186,
-    "Saint Lucia": 187,
-    "Saint Martin": 188,
-    "Saint Pierre & Miquelon": 189,
-    "Saint Vincent and the Grenadines": 190,
+    "Republika Sjeverna Makedonija": 164,
+    "REUNION": 180,
+
+    "RIA": None,
+
+    "Ruanda": 183,
+    "Rumunija": 181,
+    "Ruska Federacija": 182,
+    "S. Martin": 188,
+    "SAD Sjedinjene Americke Države": 235,
+    "SAINT PIERRE AND MIQUELON": 189,
+    "Salvador": 66,
     "Samoa": 191,
     "San Marino": 192,
-    "Sao Tome and Principe": 193,
-    "Saudi Arabia": 194,
+    "Saudijska Arabija": 194,
+    "Sejšeli": 197,
     "Senegal": 195,
-    "Serbia": 196,
-    "Seychelles": 197,
-    "Sierra Leone": 198,
-    "Singapore": 199,
-    "Sint Maarten": 200,
-    "Slovakia": 201,
-    "Slovenia": 202,
-    "Solomon Islands": 203,
-    "Somalia": 204,
-    "South Africa": 205,
-    "South Georgia and S. Sandwich Islands": 206,
-    "South Sudan": 207,
-    "Spain": 208,
-    "Sri Lanka": 209,
+    "Siera Leone": 198,
+    "Singapur": 199,
+    "Sirija": 215,
+    "Slovacka": 201,
+    "Slovenija": 202,
+    "Solomonski otoci": 203,
+    "Somalija": 204,
+    "Srbija": 196,
     "Sudan": 210,
-    "Suriname": 211,
-    "Svalbard and Jan Mayen": 212,
-    "Sweden": 213,
-    "Switzerland": 214,
-    "Syria": 215,
-    "Taiwan": 216,
-    "Tajikistan": 217,
-    "Tanzania": 218,
-    "Thailand": 219,
-    "Timor-Leste": 220,
+    "Surinam": 211,
+    "SVALBARD AND JAN MAYEN": 212,
+
+    "Sveta Helena": 185,
+    "Sveta Lucija": 187,
+    "Sveti Vincent i Grenadine": 190,
+    "Sveti Barthelemy": 184,
+
+    # Explicit exception:
+    # SVETI EUSTATIUS -> BONAIRE #28
+    "SVETI EUSTATIUS": 28,
+
+    "Sveti Kits i Nevis": 186,
+    "Sveti Tome i Principe": 193,
+
+    "Španija": 208,
+    "Šri Lanka": 209,
+    "Švedska": 213,
+    "Švicarska": 214,
+    "Tadžikistan": 217,
+
+    "TAHITI": 78,
+
+    "Tajland": 219,
+    "Tajvan - Kina": 216,
+    "Tanzanija": 218,
+    "Timor": 220,
     "Togo": 221,
-    "Tokelau": 222,
+    "TOKELAU": 222,
     "Tonga": 223,
-    "Trinidad and Tobago": 224,
-    "Tunisia": 225,
-    "Turkey": 226,
+    "Trinidad i Tobago": 224,
+
+    "TRISTAN DA CUNHA": 185,
+    "Tristan Da Cunha": 185,
+
+    "Tunis": 225,
     "Turkmenistan": 227,
-    "Turks and Caicos Islands": 228,
+    "TURKS AND CAICOS ISLANDS": 228,
+    "Turska": 226,
     "Tuvalu": 229,
     "Uganda": 230,
-    "Ukraine": 231,
-    "United Arab Emirates": 232,
-    "United Kingdom": 233,
-    "Uruguay": 234,
-    "U.S.A.": 235,
-    "U.S. Minor Outlying Islands": 236,
+    "Ujedinjeni Arapski Emirati": 232,
+    "Ukrajina": 231,
+    "UNITED STATES MINOR OUTLYING ISLANDS": 236,
+    "Urugvaj": 234,
     "Uzbekistan": 237,
     "Vanuatu": 238,
-    "Vatican": 239,
-    "Venezuela": 240,
-    "Vietnam": 241,
-    "Virgin Islands (UK)": 242,
-    "Virgin Islands of the USA": 243,
-    "Wallis & Futuna": 244,
-    "Western Sahara": 245,
-    "Yemen": 246,
-    "Zambia": 247,
-    "Zimbabwe": 248,
+    "Vatikan": 239,
+    "Velika Britanija": 233,
+    "Venecuela": 240,
+    "Vijetnam": 241,
+    "VIRGIN ISLANDS, BRITISH": 242,
+
+    # Explicit exception:
+    # U.S. Virgin Islands -> Amer.Djevičanska Ostrva #243
+    "VIRGIN ISLANDS, U.S.": 243,
+
+    "Walis i Futuna": 244,
+    "WALLIS AND FUTUNA": 244,
+    "WESTERN SAHARA": 245,
+    "Zambija": 247,
+    "Zimbabve": 248,
 }
 
 
 # ============================================================
-# Postcrossing name matching
-# ============================================================
-
-def normalize_country_name(name):
-    """
-    Normalize country names so small punctuation/case
-    differences do not prevent matching.
-    """
-
-    name = normalize_text(name)
-
-    name = name.replace("’", "'")
-    name = name.replace("–", "-")
-    name = name.replace("—", "-")
-
-    return name.casefold()
-
-
-# Known differences between possible BH Posta names
-# and the Postcrossing names.
-POSTCROSSING_ALIASES = {
-    "bosnia and herzegovina": "Bosnia-Herzegovina",
-
-    "czech republic": "Czechia",
-
-    "cape verde": "Cabo Verde",
-
-    "ivory coast": "Côte d'Ivoire",
-
-    "swaziland": "Eswatini /Swaziland",
-
-    "macau": "Macao",
-
-    "republic of korea": "Korea(South)",
-    "south korea": "Korea(South)",
-    "korea south": "Korea(South)",
-
-    "democratic people's republic of korea": "Korea(North)",
-    "north korea": "Korea(North)",
-    "korea north": "Korea(North)",
-
-    "russian federation": "Russia",
-
-    "republic of moldova": "Moldova",
-
-    "turkiye": "Turkey",
-    "türkiye": "Turkey",
-
-    "usa": "U.S.A.",
-    "u.s.a": "U.S.A.",
-    "united states": "U.S.A.",
-    "united states of america": "U.S.A.",
-
-    "vatican city": "Vatican",
-    "vatican city state": "Vatican",
-
-    "laos pdr": "Laos",
-    "lao people's democratic republic": "Laos",
-
-    "islamic republic of iran": "Iran",
-
-    "united republic of tanzania": "Tanzania",
-
-    "plurinational state of bolivia": "Bolivia",
-
-    "bolivarian republic of venezuela": "Venezuela",
-
-    "federated states of micronesia": "Micronesia",
-
-    "brunei darussalam": "Brunei",
-
-    "burma": "Myanmar",
-
-    "state of palestine": "Palestine",
-
-    "republic of north macedonia": "North Macedonia",
-
-    "timor leste": "Timor-Leste",
-    "east timor": "Timor-Leste",
-
-    "eswatini": "Eswatini /Swaziland",
-
-    "côte d’ivoire": "Côte d'Ivoire",
-}
-
-
-def get_postcrossing_number(country):
-    """
-    Return the Postcrossing number for a country.
-
-    Returns None if the country cannot be matched.
-    """
-
-    normalized = normalize_country_name(country)
-
-    # First: exact normalized match.
-    for postcrossing_name, number in POSTCROSSING_NUMBERS.items():
-
-        if (
-            normalize_country_name(postcrossing_name)
-            == normalized
-        ):
-            return number
-
-    # Second: known alias.
-    canonical_name = POSTCROSSING_ALIASES.get(
-        normalized
-    )
-
-    if canonical_name:
-        return POSTCROSSING_NUMBERS.get(
-            canonical_name
-        )
-
-    return None
-
-
-def format_country(country):
-    """
-    Add the Postcrossing number to the country name.
-
-    Example:
-        Canada
-    becomes:
-        40|Canada
-
-    Unknown/unmatched countries become:
-        ???|Country Name
-    """
-
-    number = get_postcrossing_number(country)
-
-    if number is None:
-        return f"???|{country}"
-
-    return f"{number}|{country}"
-
-
-# ============================================================
-# Utility
+# NORMALIZATION
 # ============================================================
 
 def normalize_text(text):
@@ -447,6 +629,201 @@ def normalize_text(text):
     return text.strip()
 
 
+def normalize_country_name(text):
+    """
+    Normalize a country name for reliable comparison.
+
+    Examples:
+
+        Curaçao -> CURACAO
+        Češka Republika -> CESKA REPUBLIKA
+        Španija -> SPANIJA
+    """
+
+    text = normalize_text(text).upper()
+
+    text = unicodedata.normalize("NFD", text)
+
+    text = "".join(
+        char
+        for char in text
+        if unicodedata.category(char) != "Mn"
+    )
+
+    # Handle letters that are not decomposed by NFD.
+    text = text.replace("Đ", "D")
+    text = text.replace("Ð", "D")
+
+    # Normalize punctuation.
+    text = re.sub(r"[^A-Z0-9]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+# ============================================================
+# BUILD NORMALIZED LOOKUP
+# ============================================================
+
+NORMALIZED_BH_POSTA_TO_POSTCROSSING = {}
+
+for country_name, number in BH_POSTA_TO_POSTCROSSING.items():
+    normalized = normalize_country_name(country_name)
+    NORMALIZED_BH_POSTA_TO_POSTCROSSING[normalized] = number
+
+
+# ============================================================
+# POSTCROSSING LOOKUP
+# ============================================================
+
+def get_postcrossing_numbers(country_name):
+    """
+    Return a list of Postcrossing number(s).
+
+    Examples:
+
+        Canada
+            -> [40]
+
+        Holandski Antili
+            -> [13, 28, 57, 200]
+
+        Unknown
+            -> []
+    """
+
+    country_name = normalize_text(country_name)
+
+    # Exact lookup.
+    if country_name in BH_POSTA_TO_POSTCROSSING:
+        value = BH_POSTA_TO_POSTCROSSING[country_name]
+
+        if value is None:
+            return []
+
+        if isinstance(value, list):
+            return value
+
+        return [value]
+
+    normalized = normalize_country_name(country_name)
+
+    # Normalized lookup.
+    if normalized in NORMALIZED_BH_POSTA_TO_POSTCROSSING:
+        value = NORMALIZED_BH_POSTA_TO_POSTCROSSING[normalized]
+
+        if value is None:
+            return []
+
+        if isinstance(value, list):
+            return value
+
+        return [value]
+
+    # --------------------------------------------------------
+    # Explicit exceptions
+    # --------------------------------------------------------
+
+    # Holandski Antili -> four destinations.
+    if normalized == "HOLANDSKI ANTILI":
+        return [13, 28, 57, 200]
+
+    # Sveta Helena / Ascension / Tristan da Cunha -> #185.
+    if (
+        "SVETA HELENA" in normalized
+        or "SAINT HELENA" in normalized
+        or "ASCENSION" in normalized
+        or "TRISTAN DA CUNHA" in normalized
+    ):
+        return [185]
+
+    # U.S. Virgin Islands -> #243.
+    if (
+        "VIRGIN ISLANDS U S" in normalized
+        or "US VIRGIN ISLANDS" in normalized
+        or "UNITED STATES VIRGIN ISLANDS" in normalized
+    ):
+        return [243]
+
+    # Tahiti -> French Polynesia #78.
+    if "TAHITI" in normalized:
+        return [78]
+
+    # Saint Eustatius -> Bonaire #28.
+    if (
+        "SVETI EUSTATIUS" in normalized
+        or "SAINT EUSTATIUS" in normalized
+    ):
+        return [28]
+
+    return []
+
+
+# ============================================================
+# OUTPUT FORMATTING
+# ============================================================
+
+def format_country(country_name):
+    """
+    Convert one BH Posta destination into output line(s).
+
+    Normal:
+        Canada
+        -> 40|Kanada
+
+    Special:
+        Holandski Antili
+        -> 13|Aruba
+           28|BONAIRE
+           57|Curaçao
+           200|Sint Maarten
+
+    Unknown:
+        Some Name
+        -> ???|Some Name
+    """
+
+    country_name = normalize_text(country_name)
+
+    numbers = get_postcrossing_numbers(country_name)
+
+    if not numbers:
+        return [f"???|{country_name}"]
+
+    normalized = normalize_country_name(country_name)
+
+    # --------------------------------------------------------
+    # Holandski Antili is one BH Posta entry representing
+    # four Postcrossing destinations.
+    # --------------------------------------------------------
+
+    if normalized == "HOLANDSKI ANTILI":
+        return [
+            "13|Aruba",
+            "28|BONAIRE",
+            "57|Curaçao",
+            "200|Sint Maarten",
+        ]
+
+    # --------------------------------------------------------
+    # All other destinations use the original BH Posta name
+    # in the output.
+    # --------------------------------------------------------
+
+    return [
+        f"{number}|{country_name}"
+        for number in numbers
+    ]
+
+
+def is_known_country(country_name):
+    return bool(get_postcrossing_numbers(country_name))
+
+
+# ============================================================
+# OUTPUT FILE
+# ============================================================
+
 def write_output_file(
     path,
     all_countries,
@@ -454,79 +831,113 @@ def write_output_file(
     unknown,
     errors,
 ):
-    """
-    Write all four result categories into one text file.
-    """
+    lines = []
 
-    lines = [
-        "========================================",
-        "BH POSTA INTERNATIONAL DOPISNICA",
-        "========================================",
-        "",
-        "========================================",
-        "ALL COUNTRIES",
-        "========================================",
-        "",
+    lines.append("========================================")
+    lines.append("BH POSTA INTERNATIONAL DOPISNICA")
+    lines.append("========================================")
+    lines.append("")
+
+    # --------------------------------------------------------
+    # ALL COUNTRIES
+    # --------------------------------------------------------
+
+    lines.append("ALL COUNTRIES")
+    lines.append("========================================")
+
+    for country in all_countries:
+        lines.extend(format_country(country))
+
+    # --------------------------------------------------------
+    # SUSPENDED
+    # --------------------------------------------------------
+
+    lines.append("")
+    lines.append("SUSPENDED COUNTRIES")
+    lines.append("========================================")
+
+    if suspended:
+        for country in suspended:
+            lines.extend(format_country(country))
+    else:
+        lines.append("(none)")
+
+    # --------------------------------------------------------
+    # UNKNOWN
+    # --------------------------------------------------------
+
+    lines.append("")
+    lines.append("UNKNOWN COUNTRIES")
+    lines.append("========================================")
+
+    if unknown:
+        for country in unknown:
+            lines.extend(format_country(country))
+    else:
+        lines.append("(none)")
+
+    # --------------------------------------------------------
+    # ERRORS
+    # --------------------------------------------------------
+
+    lines.append("")
+    lines.append("ERROR COUNTRIES")
+    lines.append("========================================")
+
+    if errors:
+        for country in errors:
+            lines.extend(format_country(country))
+    else:
+        lines.append("(none)")
+
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
+
+    lines.append("")
+    lines.append("SUMMARY")
+    lines.append("========================================")
+    lines.append(
+        f"BH Posta countries: {len(all_countries)}"
+    )
+    lines.append(
+        f"Suspended: {len(suspended)}"
+    )
+    lines.append(
+        f"Unknown: {len(unknown)}"
+    )
+    lines.append(
+        f"Errors: {len(errors)}"
+    )
+
+    unmapped = [
+        country
+        for country in all_countries
+        if not is_known_country(country)
     ]
 
-    lines.extend(all_countries)
-
-    lines.extend(
-        [
-            "",
-            "========================================",
-            "SUSPENDED COUNTRIES",
-            "========================================",
-            "",
-        ]
+    lines.append(
+        f"Countries without Postcrossing mapping: "
+        f"{len(unmapped)}"
     )
 
-    lines.extend(suspended)
+    if unmapped:
+        lines.append("")
+        lines.append("UNMAPPED COUNTRY NAMES")
+        lines.append("========================================")
 
-    lines.extend(
-        [
-            "",
-            "========================================",
-            "UNKNOWN COUNTRIES",
-            "========================================",
-            "",
-        ]
-    )
-
-    lines.extend(unknown)
-
-    lines.extend(
-        [
-            "",
-            "========================================",
-            "ERROR COUNTRIES",
-            "========================================",
-            "",
-        ]
-    )
-
-    lines.extend(errors)
-
-    lines.extend(
-        [
-            "",
-            "========================================",
-            "SUMMARY",
-            "========================================",
-            "",
-            f"All countries: {len(all_countries)}",
-            f"Suspended:     {len(suspended)}",
-            f"Unknown:       {len(unknown)}",
-            f"Errors:        {len(errors)}",
-            "",
-        ]
-    )
+        for country in unmapped:
+            lines.append(f"???|{country}")
 
     path.write_text(
-        "\n".join(lines),
+        "\n".join(lines) + "\n",
         encoding="utf-8",
     )
 
+
+# ============================================================
+# DEBUG HELPERS
+# ============================================================
 
 def save_debug(page, filename):
     try:
@@ -535,26 +946,18 @@ def save_debug(page, filename):
             encoding="utf-8",
         )
 
-        print(
-            f"DEBUG: Saved {filename}"
-        )
+        print(f"Saved debug file: {filename}")
 
     except Exception as exc:
-
         print(
-            f"DEBUG: Could not save {filename}: {exc}"
+            f"Could not save debug file "
+            f"{filename}: {exc}"
         )
 
 
-def selector_exists(page):
+def selector_exists(page, selector):
     try:
-        return (
-            page.locator(
-                f"select#{DESTINATION_SELECT}"
-            ).count()
-            > 0
-        )
-
+        return page.locator(selector).count() > 0
     except Exception:
         return False
 
@@ -562,42 +965,35 @@ def selector_exists(page):
 def runtime_exceeded(start_time):
     return (
         time.monotonic() - start_time
-        >= MAX_RUNTIME_SECONDS
-    )
+    ) >= MAX_RUNTIME_SECONDS
 
-
-# ============================================================
-# Page text
-# ============================================================
 
 def get_visible_text(page):
-
     try:
         return normalize_text(
-            page.locator("body").inner_text()
+            page.locator("body").inner_text(
+                timeout=3000
+            )
         )
-
     except Exception:
         return ""
 
 
 def get_result_text(page):
-
     selectors = [
-        "#lblRezultat",
-        "[id$='lblRezultat']",
+        "#lblMeDoRezultat",
+        "#lblMeDoCijena",
+        "#lblMeDoUkupnaCijena",
+        "[id*='Rezultat']",
+        "[id*='Cijena']",
+        "[id*='Price']",
     ]
 
     for selector in selectors:
-
         try:
-
-            locator = page.locator(
-                selector
-            )
+            locator = page.locator(selector)
 
             if locator.count() > 0:
-
                 text = normalize_text(
                     locator.first.inner_text()
                 )
@@ -612,224 +1008,116 @@ def get_result_text(page):
 
 
 def get_error_text(page):
+    text = get_visible_text(page)
 
-    selectors = [
-        "#lblMeDoPoruka",
-        "#lblMeObPiPoruka",
-        "[id$='lblMeDoPoruka']",
-        "[id$='lblMeObPiPoruka']",
-    ]
-
-    for selector in selectors:
-
-        try:
-
-            locator = page.locator(
-                selector
-            )
-
-            if locator.count() > 0:
-
-                text = normalize_text(
-                    locator.first.inner_text()
-                )
-
-                if text:
-                    return text
-
-        except Exception:
-            pass
+    if SUSPENDED_MESSAGE in text:
+        return SUSPENDED_MESSAGE
 
     return ""
 
 
 # ============================================================
-# International traffic
+# INTERNATIONAL TAB
 # ============================================================
 
 def select_international_tab(page):
-
-    print(
-        "2. Selecting Međunarodni promet..."
-    )
+    print("Selecting international traffic tab...")
 
     tab_control = page.locator(
         "#ASPxTabControl1"
     )
 
-    if tab_control.count() == 0:
-
-        raise RuntimeError(
-            "ASPxTabControl1 was not found."
-        )
-
-    print(
-        "   ASPxTabControl1 found."
-    )
-
-    names = [
-        "Međunarodni promet",
-        "Međunarodni",
-        "Medjunarodni promet",
-        "Medjunarodni",
-    ]
-
-    clicked = False
-
-    # --------------------------------------------------------
-    # Prefer an actual visible text element.
-    # --------------------------------------------------------
-
-    for name in names:
-
-        try:
-
-            locator = page.get_by_text(
-                name,
-                exact=False,
-            )
-
-            count = locator.count()
-
-            for i in range(count):
-
-                try:
-
-                    candidate = locator.nth(i)
-
-                    if not candidate.is_visible():
-                        continue
-
-                    print(
-                        f"   Clicking tab text: {name}"
-                    )
-
-                    candidate.click(
-                        timeout=10000
-                    )
-
-                    clicked = True
-
-                    break
-
-                except Exception:
-                    continue
-
-            if clicked:
-                break
-
-        except Exception:
-            continue
-
-    # --------------------------------------------------------
-    # DevExpress fallback.
-    # --------------------------------------------------------
-
-    if not clicked:
-
-        print(
-            "   Text click failed; trying "
-            "DevExpress tab elements..."
-        )
-
-        selectors = [
-            "#ASPxTabControl1 .dxtc-tab",
-            "#ASPxTabControl1 .dxtc-tabLink",
-            "#ASPxTabControl1 td[id*='T1']",
-            "#ASPxTabControl1 [id*='T1']",
+    if tab_control.count() > 0:
+        names = [
+            "Međunarodni promet",
+            "Međunarodni",
+            "Medjunarodni promet",
+            "Medjunarodni",
         ]
 
-        for selector in selectors:
-
+        for name in names:
             try:
-
-                locator = page.locator(
-                    selector
+                locator = tab_control.get_by_text(
+                    name,
+                    exact=True,
                 )
 
-                count = locator.count()
+                if locator.count() > 0:
+                    locator.first.click()
 
-                if count >= 2:
+                    page.wait_for_timeout(1200)
 
-                    locator.nth(1).click(
-                        timeout=10000
+                    try:
+                        page.wait_for_load_state(
+                            "networkidle",
+                            timeout=10000,
+                        )
+                    except Exception:
+                        pass
+
+                    save_debug(
+                        page,
+                        "debug_after_international.html",
                     )
 
-                    clicked = True
-                    break
-
-                if count == 1:
-
-                    locator.first.click(
-                        timeout=10000
-                    )
-
-                    clicked = True
-                    break
+                    return
 
             except Exception:
-                continue
+                pass
 
-    if not clicked:
+    fallback_selectors = [
+        "#ASPxTabControl1 .dxtc-tab",
+        "#ASPxTabControl1 .dxtc-tabLink",
+        "#ASPxTabControl1 td[id*='T1']",
+        "#ASPxTabControl1 [id*='T1']",
+    ]
 
-        raise RuntimeError(
-            "Could not click Međunarodni promet tab."
-        )
+    for selector in fallback_selectors:
+        try:
+            locator = page.locator(selector)
 
-    print(
-        "   Waiting for Međunarodni promet callback..."
-    )
+            if locator.count() > 0:
+                locator.first.click()
 
-    try:
+                page.wait_for_timeout(1200)
 
-        page.wait_for_load_state(
-            "networkidle",
-            timeout=10000,
-        )
+                try:
+                    page.wait_for_load_state(
+                        "networkidle",
+                        timeout=10000,
+                    )
+                except Exception:
+                    pass
 
-    except PlaywrightTimeoutError:
-        pass
+                save_debug(
+                    page,
+                    "debug_after_international.html",
+                )
 
-    page.wait_for_timeout(
-        1200
-    )
+                return
 
-    save_debug(
-        page,
-        "debug_after_international.html",
-    )
+        except Exception:
+            pass
 
-    print(
-        "   Međunarodni promet tab callback completed."
+    raise RuntimeError(
+        "Could not select the international traffic tab."
     )
 
 
 # ============================================================
-# Dopisnica
+# DOPISNICA
 # ============================================================
 
 def select_dopisnica(page):
-
-    print(
-        "3. Selecting Dopisnica..."
-    )
+    print("Selecting Dopisnica...")
 
     active = page.locator(
         "img[src*='Dopisnica_Aktivna.png']"
     )
 
-    try:
-
-        if active.count() > 0:
-
-            print(
-                "   Dopisnica is already active."
-            )
-
-            return
-
-    except Exception:
-        pass
+    if active.count() > 0:
+        print("Dopisnica already active.")
+        return
 
     selectors = [
         "#ImageButton8",
@@ -839,380 +1127,174 @@ def select_dopisnica(page):
         "img[src*='Dopisnica']",
     ]
 
-    clicked = False
-
     for selector in selectors:
-
         try:
+            locator = page.locator(selector)
 
-            locator = page.locator(
-                selector
-            )
+            if locator.count() > 0:
+                locator.first.click()
 
-            count = locator.count()
-
-            if count == 0:
-                continue
-
-            for i in range(count):
-
-                candidate = locator.nth(i)
+                page.wait_for_timeout(1200)
 
                 try:
-
-                    if not candidate.is_visible():
-                        continue
-
+                    page.wait_for_load_state(
+                        "networkidle",
+                        timeout=10000,
+                    )
                 except Exception:
                     pass
 
-                try:
-
-                    print(
-                        f"   Clicking {selector}"
-                    )
-
-                    candidate.click(
-                        timeout=10000
-                    )
-
-                    clicked = True
-
-                    break
-
-                except Exception:
-                    continue
-
-            if clicked:
-                break
+                return
 
         except Exception:
-            continue
+            pass
 
-    # --------------------------------------------------------
     # JavaScript fallback.
-    # --------------------------------------------------------
+    try:
+        clicked = page.evaluate(
+            """
+            () => {
+                const el =
+                    document.getElementById('ImageButton8');
 
-    if not clicked:
-
-        print(
-            "   Direct Dopisnica click failed; "
-            "trying DOM click..."
-        )
-
-        try:
-
-            clicked = page.evaluate(
-                """
-                () => {
-                    const el =
-                        document.getElementById('ImageButton8');
-
-                    if (!el) {
-                        return false;
-                    }
-
+                if (el) {
                     el.click();
                     return true;
                 }
-                """
-            )
 
-        except Exception:
-            clicked = False
-
-    if not clicked:
-
-        save_debug(
-            page,
-            "debug_before_dopisnica_failure.html",
+                return false;
+            }
+            """
         )
 
-        raise RuntimeError(
-            "Could not click Dopisnica."
-        )
+        if clicked:
+            page.wait_for_timeout(1200)
+            return
 
-    print(
-        "   Waiting for Dopisnica callback..."
-    )
-
-    try:
-
-        page.wait_for_load_state(
-            "networkidle",
-            timeout=10000,
-        )
-
-    except PlaywrightTimeoutError:
+    except Exception:
         pass
 
-    page.wait_for_timeout(
-        1200
-    )
-
-    # --------------------------------------------------------
-    # NOW the destination selector should exist.
-    # --------------------------------------------------------
-
-    if not selector_exists(page):
-
-        print(
-            "   Destination selector not immediately "
-            "visible after Dopisnica; waiting..."
-        )
-
-        try:
-
-            page.wait_for_selector(
-                f"select#{DESTINATION_SELECT}",
-                timeout=10000,
-            )
-
-        except PlaywrightTimeoutError:
-            pass
-
-    if not selector_exists(page):
-
-        save_debug(
-            page,
-            "debug_after_dopisnica_failure.html",
-        )
-
-        raise RuntimeError(
-            "Dopisnica was selected, but "
-            f"#{DESTINATION_SELECT} is not present."
-        )
-
-    print(
-        "   Destination selector is available."
+    raise RuntimeError(
+        "Could not select Dopisnica."
     )
 
 
 # ============================================================
-# Air transport
+# AIR TRANSPORT
 # ============================================================
 
 def select_air_transport(page):
+    print("Selecting air transport...")
 
-    print(
-        "4. Selecting Avionski prijenos..."
-    )
-
-    checkbox = page.locator(
-        f"#{AIR_CHECKBOX}"
-    )
-
-    if checkbox.count() == 0:
-
-        raise RuntimeError(
-            f"#{AIR_CHECKBOX} was not found."
-        )
+    selector = f"#{AIR_CHECKBOX}"
 
     try:
+        checkbox = page.locator(selector)
 
-        checked = checkbox.is_checked()
-
-    except Exception:
-
-        checked = False
-
-    if checked:
-
-        print(
-            "   Avionski prijenos already enabled."
-        )
-
-        return
-
-    print(
-        "   Avionski prijenos enabled."
-    )
-
-    try:
-
-        checkbox.check(
-            timeout=10000
-        )
-
-    except Exception:
-
-        checkbox.click(
-            timeout=10000
-        )
-
-    try:
-
-        page.wait_for_load_state(
-            "networkidle",
-            timeout=10000,
-        )
-
-    except PlaywrightTimeoutError:
-        pass
-
-    page.wait_for_timeout(
-        700
-    )
-
-    try:
-
-        if not checkbox.is_checked():
-
+        if checkbox.count() == 0:
             raise RuntimeError(
-                "Avionski prijenos checkbox "
-                "is still unchecked."
+                f"Air transport checkbox not found: "
+                f"{selector}"
             )
 
-    except Exception as exc:
+        if not checkbox.is_checked():
+            checkbox.check()
 
+        page.wait_for_timeout(500)
+
+    except Exception as exc:
         raise RuntimeError(
-            f"Could not enable Avionski prijenos: {exc}"
+            f"Could not select air transport: {exc}"
         )
 
 
 # ============================================================
-# Weight
+# WEIGHT
 # ============================================================
 
 def set_weight(page):
+    print(f"Setting weight to {WEIGHT}...")
 
-    print(
-        f"5. Setting weight to {WEIGHT} g..."
-    )
-
-    weight = page.locator(
-        f"#{AIR_WEIGHT}"
-    )
-
-    if weight.count() == 0:
-
-        raise RuntimeError(
-            f"#{AIR_WEIGHT} was not found."
-        )
-
-    weight.fill(
-        WEIGHT
-    )
+    selector = f"#{AIR_WEIGHT}"
 
     try:
+        field = page.locator(selector)
 
-        weight.press(
-            "Tab"
+        if field.count() == 0:
+            raise RuntimeError(
+                f"Weight field not found: {selector}"
+            )
+
+        field.fill(WEIGHT)
+
+        page.wait_for_timeout(250)
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not set weight: {exc}"
         )
-
-    except Exception:
-        pass
-
-    page.wait_for_timeout(
-        300
-    )
-
-    print(
-        "   Weight set."
-    )
 
 
 # ============================================================
-# Countries
+# DESTINATIONS
 # ============================================================
 
 def get_destinations(page):
+    selector = f"select#{DESTINATION_SELECT}"
 
-    print(
-        "6. Reading destination country list..."
-    )
+    locator = page.locator(selector)
 
-    select = page.locator(
-        f"select#{DESTINATION_SELECT}"
-    )
-
-    if select.count() == 0:
-
+    if locator.count() == 0:
         raise RuntimeError(
-            f"#{DESTINATION_SELECT} was not found."
+            f"Destination selector not found: {selector}"
         )
 
-    options = select.locator(
-        "option"
-    )
-
-    count = options.count()
+    options = locator.locator("option")
 
     destinations = []
 
-    for i in range(count):
-
+    for i in range(options.count()):
         option = options.nth(i)
 
         try:
-
-            value = option.get_attribute(
-                "value"
-            )
-
+            value = option.get_attribute("value")
             name = normalize_text(
                 option.inner_text()
             )
 
-            if value and name:
+            if value is None:
+                continue
 
-                destinations.append(
-                    (
-                        value.strip(),
-                        name,
-                    )
-                )
+            if not name:
+                continue
+
+            destinations.append(
+                (value, name)
+            )
 
         except Exception:
             continue
 
-    if not destinations:
-
-        raise RuntimeError(
-            "Destination selector exists but "
-            "contains no countries."
-        )
-
-    print(
-        f"   Found {len(destinations)} "
-        f"destination entries."
-    )
-
     return destinations
 
 
-# ============================================================
-# Country selection
-# ============================================================
-
 def select_country(page, code):
+    selector = f"select#{DESTINATION_SELECT}"
 
-    select = page.locator(
-        f"select#{DESTINATION_SELECT}"
-    )
-
-    if select.count() == 0:
-
-        raise RuntimeError(
-            f"#{DESTINATION_SELECT} disappeared."
-        )
-
-    select.select_option(
+    page.locator(selector).select_option(
         value=code
     )
 
-    # Allow client-side onchange logic to run.
     page.wait_for_timeout(
         COUNTRY_WAIT_MS
     )
 
 
 # ============================================================
-# Calculate
+# CALCULATE
 # ============================================================
 
 def click_calculate(page):
-
     selectors = [
         "#btnMeDoIzracunaj",
         "input[name='btnMeDoIzracunaj']",
@@ -1222,218 +1304,125 @@ def click_calculate(page):
     ]
 
     for selector in selectors:
-
         try:
+            locator = page.locator(selector)
 
-            locator = page.locator(
-                selector
-            )
+            if locator.count() > 0:
+                locator.first.click()
 
-            count = locator.count()
+                page.wait_for_timeout(450)
 
-            if count == 0:
-                continue
-
-            for i in range(count):
-
-                candidate = locator.nth(i)
-
-                try:
-
-                    if not candidate.is_visible():
-                        continue
-
-                except Exception:
-                    pass
-
-                try:
-
-                    candidate.click(
-                        timeout=5000
-                    )
-
-                    # Do not wait for full networkidle.
-                    page.wait_for_timeout(
-                        450
-                    )
-
-                    return
-
-                except Exception:
-                    continue
+                return
 
         except Exception:
-            continue
+            pass
 
     raise RuntimeError(
-        "Could not find or click Izračunaj."
+        "Could not find the calculate button."
     )
 
-
-# ============================================================
-# Result parsing
-# ============================================================
 
 def parse_price(text):
+    if not text:
+        return None
 
-    text = normalize_text(
-        text
+    # Prefer "Ukupna cijena ... KM".
+    match = re.search(
+        r"Ukupna\s+cijena.*?"
+        r"([0-9]+(?:[.,][0-9]+)?)\s*KM",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
     )
 
-    # Primary format:
-    #
-    # Ukupna cijena 2,20 KM
-    #
+    if match:
+        value = match.group(1).replace(
+            ",",
+            ".",
+        )
 
-    match = re.search(
-        r"Ukupna\s+cijena\s*"
-        r"([0-9]+(?:[,.][0-9]+)?)"
-        r"\s*KM",
+        return float(value)
+
+    # Fallback: any number followed by KM.
+    matches = re.findall(
+        r"([0-9]+(?:[.,][0-9]+)?)\s*KM",
         text,
         flags=re.IGNORECASE,
     )
 
-    if not match:
-
-        # Fallback:
-        #
-        # 2,20 KM
-        #
-
-        match = re.search(
-            r"\b([0-9]+(?:[,.][0-9]+)?)"
-            r"\s*KM\b",
-            text,
-            flags=re.IGNORECASE,
+    if matches:
+        value = matches[-1].replace(
+            ",",
+            ".",
         )
 
-    if not match:
-        return None
+        return float(value)
 
-    value_text = match.group(1)
-
-    try:
-
-        value = float(
-            value_text.replace(
-                ",",
-                ".",
-            )
-        )
-
-    except ValueError:
-
-        return None
-
-    return value_text, value
+    return None
 
 
 def calculate_country(page, code):
-
     select_country(
         page,
         code,
     )
 
-    # Make sure weight remains 10 g.
-    weight = page.locator(
-        f"#{AIR_WEIGHT}"
-    )
-
-    if weight.count() > 0:
-
-        try:
-
-            current = weight.input_value()
-
-            if current != WEIGHT:
-
-                weight.fill(
-                    WEIGHT
-                )
-
-        except Exception:
-            pass
-
-    click_calculate(
-        page
-    )
-
-    # Read result.
-    text = get_result_text(
-        page
-    )
-
-    error_text = get_error_text(
-        page
-    )
-
-    combined = normalize_text(
-        f"{error_text} {text}"
-    )
-
-    # --------------------------------------------------------
-    # Suspended
-    # --------------------------------------------------------
-
-    if (
-        SUSPENDED_MESSAGE.lower()
-        in combined.lower()
+    # The destination change can rebuild the weight field.
+    if selector_exists(
+        page,
+        f"#{AIR_WEIGHT}",
     ):
+        set_weight(page)
 
+    click_calculate(page)
+
+    result_text = get_result_text(page)
+    error_text = get_error_text(page)
+
+    if SUSPENDED_MESSAGE in result_text:
         return (
             "SUSPENDED",
-            SUSPENDED_MESSAGE,
+            result_text,
         )
 
-    # --------------------------------------------------------
-    # Price
-    # --------------------------------------------------------
-
-    price = parse_price(
-        combined
-    )
-
-    if price is not None:
-
-        price_text, price_value = price
-
-        if price_value == 0:
-
-            return (
-                "UNKNOWN",
-                f"Ukupna cijena {price_text} KM",
-            )
-
+    if error_text:
         return (
-            "AVAILABLE",
-            f"{price_text} KM",
+            "SUSPENDED",
+            error_text,
         )
 
-    # --------------------------------------------------------
-    # Unknown
-    # --------------------------------------------------------
+    price = parse_price(result_text)
+
+    if price is None:
+        return (
+            "UNKNOWN",
+            result_text,
+        )
+
+    if price <= 0:
+        return (
+            "UNKNOWN",
+            result_text,
+        )
 
     return (
-        "UNKNOWN",
-        "Cijena nije pronađena",
+        "AVAILABLE",
+        result_text,
     )
 
 
 # ============================================================
-# Main
+# MAIN
 # ============================================================
 
 def main():
-
     start_time = time.monotonic()
 
-    print(
-        "Opening calculator..."
-    )
+    all_countries = []
+    suspended = []
+    unknown = []
+    errors = []
 
     with sync_playwright() as playwright:
-
         browser = playwright.chromium.launch(
             headless=True,
             args=[
@@ -1445,12 +1434,10 @@ def main():
 
         context = browser.new_context(
             user_agent=(
-                "Mozilla/5.0 "
-                "(X11; Linux x86_64) "
+                "Mozilla/5.0 (X11; Linux x86_64) "
                 "AppleWebKit/537.36 "
                 "(KHTML, like Gecko) "
-                "Chrome/151.0.0.0 "
-                "Safari/537.36"
+                "Chrome/151.0.0.0 Safari/537.36"
             ),
             locale="en-US",
             viewport={
@@ -1461,15 +1448,12 @@ def main():
 
         page = context.new_page()
 
-        page.set_default_timeout(
-            15000
-        )
-
         try:
+            # ------------------------------------------------
+            # Open BH Posta.
+            # ------------------------------------------------
 
-            # =================================================
-            # 1. Open
-            # =================================================
+            print("Opening BH Posta...")
 
             page.goto(
                 URL,
@@ -1477,273 +1461,207 @@ def main():
                 timeout=60000,
             )
 
-            page.wait_for_timeout(
-                1000
-            )
-
-            print(
-                f"Initial page received: "
-                f"{len(page.content()):,} bytes"
-            )
+            page.wait_for_timeout(1500)
 
             save_debug(
                 page,
-                "debug_original_page.html",
+                "debug_original.html",
             )
 
-            # =================================================
-            # 2. International
-            # =================================================
+            # ------------------------------------------------
+            # Select international traffic.
+            # ------------------------------------------------
 
-            select_international_tab(
-                page
-            )
+            select_international_tab(page)
 
-            # =================================================
-            # 3. Dopisnica
-            # =================================================
+            # ------------------------------------------------
+            # Select Dopisnica.
+            # ------------------------------------------------
 
-            select_dopisnica(
-                page
-            )
+            select_dopisnica(page)
 
-            # =================================================
-            # 4. Countries
-            # =================================================
+            # ------------------------------------------------
+            # Read destinations.
+            # ------------------------------------------------
 
-            destinations = get_destinations(
-                page
-            )
+            destinations = get_destinations(page)
 
-            print()
-            print(
-                f"Destination list contains "
-                f"{len(destinations)} countries."
-            )
-
-            # =================================================
-            # 5. Air
-            # =================================================
-
-            select_air_transport(
-                page
-            )
-
-            # =================================================
-            # 6. Weight
-            # =================================================
-
-            set_weight(
-                page
-            )
-
-            # =================================================
-            # Re-read countries
-            # =================================================
-
-            destinations = get_destinations(
-                page
-            )
-
-            # =================================================
-            # Check Postcrossing mappings
-            # =================================================
-
-            unmapped_countries = []
-
-            for code, country in destinations:
-
-                if get_postcrossing_number(country) is None:
-
-                    unmapped_countries.append(
-                        country
-                    )
-
-            if unmapped_countries:
-
-                print()
-                print(
-                    "WARNING: The following BH Posta "
-                    "countries do not have a Postcrossing "
-                    "number mapping:"
+            if not destinations:
+                raise RuntimeError(
+                    "No destination countries found."
                 )
 
-                for country in unmapped_countries:
+            # ------------------------------------------------
+            # Select air transport and weight.
+            # ------------------------------------------------
 
-                    print(
-                        f"    ???|{country}"
-                    )
+            select_air_transport(page)
 
-                print()
+            set_weight(page)
 
-            # =================================================
-            # 7. Check countries
-            # =================================================
+            # ------------------------------------------------
+            # Re-read destinations because the page can
+            # dynamically rebuild the select element.
+            # ------------------------------------------------
 
-            print()
-            print(
-                "7. Checking every destination..."
-            )
+            destinations = get_destinations(page)
 
             all_countries = [
-                format_country(country)
-                for code, country in destinations
+                country
+                for _, country in destinations
             ]
 
-            suspended = []
-            unknown = []
-            errors = []
-
-            total = len(
-                destinations
+            print(
+                f"Found {len(destinations)} "
+                f"BH Posta destinations."
             )
 
-            for number, (code, country) in enumerate(
+            # ------------------------------------------------
+            # Display mapping information.
+            # ------------------------------------------------
+
+            print("")
+            print(
+                "Checking Postcrossing mappings..."
+            )
+
+            for _, country in destinations:
+                numbers = get_postcrossing_numbers(
+                    country
+                )
+
+                if not numbers:
+                    print(
+                        f"WARNING: No Postcrossing "
+                        f"mapping: {country}"
+                    )
+                else:
+                    mapped = ", ".join(
+                        str(number)
+                        for number in numbers
+                    )
+
+                    print(
+                        f"  {country} -> {mapped}"
+                    )
+
+            # ------------------------------------------------
+            # Check each BH Posta destination.
+            # ------------------------------------------------
+
+            print("")
+            print(
+                "Checking countries..."
+            )
+
+            for index, (code, country) in enumerate(
                 destinations,
                 start=1,
             ):
-
-                # ------------------------------------------------
-                # Runtime guard
-                # ------------------------------------------------
-
-                if runtime_exceeded(
-                    start_time
-                ):
-
-                    raise RuntimeError(
-                        "Maximum monitor runtime reached."
+                if runtime_exceeded(start_time):
+                    print(
+                        "Maximum runtime reached. "
+                        "Stopping country checks."
                     )
-
-                postcrossing_number = (
-                    get_postcrossing_number(
-                        country
-                    )
-                )
-
-                if postcrossing_number is None:
-
-                    display_country = (
-                        f"???|{country}"
-                    )
-
-                else:
-
-                    display_country = (
-                        f"{postcrossing_number}|{country}"
-                    )
+                    break
 
                 print(
-                    f"[{number}/{total}] "
-                    f"{display_country} ({code})",
-                    flush=True,
+                    f"[{index}/{len(destinations)}] "
+                    f"{country}"
                 )
 
                 try:
-
-                    status, detail = calculate_country(
+                    status, result = calculate_country(
                         page,
                         code,
                     )
 
-                    if status == "AVAILABLE":
+                    if status == "SUSPENDED":
+                        suspended.append(country)
 
                         print(
-                            f"    -> AVAILABLE "
-                            f"({detail})",
-                            flush=True,
+                            "  -> SUSPENDED"
                         )
 
-                    elif status == "SUSPENDED":
+                    elif status == "UNKNOWN":
+                        unknown.append(country)
 
                         print(
-                            "    -> SUSPENDED",
-                            flush=True,
+                            "  -> UNKNOWN"
                         )
 
-                        suspended.append(
-                            display_country
+                        print(
+                            f"     Result: "
+                            f"{result[:300]}"
+                        )
+
+                    elif status == "AVAILABLE":
+                        print(
+                            "  -> AVAILABLE"
                         )
 
                     else:
+                        unknown.append(country)
 
                         print(
-                            f"    -> UNKNOWN "
-                            f"({detail})",
-                            flush=True,
-                        )
-
-                        unknown.append(
-                            display_country
+                            f"  -> UNKNOWN STATUS: "
+                            f"{status}"
                         )
 
                 except Exception as exc:
+                    errors.append(country)
 
                     print(
-                        f"    -> ERROR: {exc}",
-                        flush=True,
+                        f"  -> ERROR: {exc}"
                     )
 
-                    errors.append(
-                        f"{display_country} | {exc}"
-                    )
-
-                    # --------------------------------------------
-                    # Do not restart the entire browser for every
-                    # individual error.
-                    # --------------------------------------------
+                    # ----------------------------------------
+                    # Attempt recovery.
+                    # ----------------------------------------
 
                     try:
-
-                        if not selector_exists(page):
-
-                            print(
-                                "    Selector disappeared; "
-                                "attempting page recovery...",
-                                flush=True,
-                            )
-
-                            page.reload(
-                                wait_until="domcontentloaded",
-                                timeout=30000,
-                            )
-
-                            page.wait_for_timeout(
-                                1000
-                            )
-
-                            select_international_tab(
-                                page
-                            )
-
-                            select_dopisnica(
-                                page
-                            )
-
-                            select_air_transport(
-                                page
-                            )
-
-                            set_weight(
-                                page
-                            )
-
-                    except Exception as recovery_exc:
-
                         print(
-                            "    Recovery failed: "
-                            f"{recovery_exc}",
-                            flush=True,
+                            "  Attempting page recovery..."
                         )
 
-                # Small pause to avoid hammering the site.
-                time.sleep(
-                    0.15
-                )
+                        page.reload(
+                            wait_until="domcontentloaded",
+                            timeout=30000,
+                        )
 
-            # =================================================
-            # 8. Write ONE combined output file
-            # =================================================
+                        page.wait_for_timeout(1000)
+
+                        select_international_tab(
+                            page
+                        )
+
+                        select_dopisnica(
+                            page
+                        )
+
+                        select_air_transport(
+                            page
+                        )
+
+                        set_weight(
+                            page
+                        )
+
+                        print(
+                            "  Recovery successful."
+                        )
+
+                    except Exception as recovery_exc:
+                        print(
+                            "  Recovery failed: "
+                            f"{recovery_exc}"
+                        )
+
+                time.sleep(0.15)
+
+            # ------------------------------------------------
+            # Write results.
+            # ------------------------------------------------
 
             write_output_file(
                 OUTPUT_FILE,
@@ -1753,100 +1671,87 @@ def main():
                 errors,
             )
 
-            # =================================================
-            # 9. Summary
-            # =================================================
+            # ------------------------------------------------
+            # Final summary.
+            # ------------------------------------------------
 
-            elapsed = (
-                time.monotonic()
-                - start_time
+            print("")
+            print(
+                "========================================"
             )
-
-            print()
+            print(
+                "MONITOR COMPLETE"
+            )
             print(
                 "========================================"
             )
 
             print(
-                "Finished."
+                f"BH Posta countries: "
+                f"{len(all_countries)}"
             )
 
             print(
-                "========================================"
+                f"Suspended: "
+                f"{len(suspended)}"
             )
 
             print(
-                f"Destinations: {total}"
+                f"Unknown: "
+                f"{len(unknown)}"
             )
 
             print(
-                f"All countries: {len(all_countries)}"
+                f"Errors: "
+                f"{len(errors)}"
             )
+
+            unmapped = [
+                country
+                for country in all_countries
+                if not is_known_country(country)
+            ]
 
             print(
-                f"Suspended:     {len(suspended)}"
+                f"Without Postcrossing mapping: "
+                f"{len(unmapped)}"
             )
 
-            print(
-                f"Unknown:       {len(unknown)}"
-            )
-
-            print(
-                f"Errors:        {len(errors)}"
-            )
-
-            print(
-                f"Unmapped Postcrossing numbers: "
-                f"{len(unmapped_countries)}"
-            )
-
-            print(
-                f"Runtime:       {elapsed:.1f} seconds"
-            )
-
-            print(
-                "========================================"
-            )
-
-            if unmapped_countries:
-
-                print()
+            if unmapped:
+                print("")
                 print(
-                    "UNMAPPED POSTCROSSING COUNTRIES:"
+                    "Unmapped countries:"
                 )
 
-                for country in unmapped_countries:
-
+                for country in unmapped:
                     print(
-                        f"    {country}"
+                        f"  ???|{country}"
                     )
 
-                print()
-
+            print("")
             print(
-                f"Output:        {OUTPUT_FILE}"
+                f"Output file: "
+                f"{OUTPUT_FILE}"
             )
 
         finally:
-
             browser.close()
 
 
 # ============================================================
-# Entry point
+# ENTRY POINT
 # ============================================================
 
 if __name__ == "__main__":
-
     try:
-
         main()
 
+    except KeyboardInterrupt:
+        print("Interrupted.")
+        sys.exit(130)
+
     except Exception as exc:
-
         print(
-            f"FATAL ERROR: {exc}",
-            file=sys.stderr,
+            f"FATAL ERROR: {exc}"
         )
-
         sys.exit(1)
