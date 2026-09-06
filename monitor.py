@@ -294,6 +294,41 @@ POSTCROSSING_NUMBERS = {
 
 
 # ============================================================
+# SPECIAL STATUS EXCEPTION
+#
+# Finska (#75) controls Åland (#2).
+#
+# If Finska is AVAILABLE:
+#     Åland is AVAILABLE.
+#
+# If Finska is SUSPENDED:
+#     Åland is SUSPENDED.
+#
+# If Finska is UNKNOWN:
+#     Åland is UNKNOWN.
+#
+# If Finska has an ERROR:
+#     Åland has an ERROR.
+#
+# Åland is therefore NOT independently checked on BH Posta.
+# ============================================================
+
+FINSKA_POSTCROSSING_NUMBER = 75
+ALAND_POSTCROSSING_NUMBER = 2
+
+FINSKA_COUNTRY_NAMES = {
+    "Finska",
+}
+
+ALAND_COUNTRY_NAMES = {
+    "Åland",
+    "Åland Islands",
+    "Aland",
+    "Aland Islands",
+}
+
+
+# ============================================================
 # BH POSTA -> POSTCROSSING
 #
 # These are the ACTUAL BH Posta names from the user's output.
@@ -688,6 +723,9 @@ def get_postcrossing_numbers(country_name):
         Holandski Antili
             -> [13, 28, 57, 200]
 
+        Åland Islands
+            -> [2]
+
         Unknown
             -> []
     """
@@ -723,6 +761,13 @@ def get_postcrossing_numbers(country_name):
     # --------------------------------------------------------
     # Explicit exceptions
     # --------------------------------------------------------
+
+    # Åland Islands -> Postcrossing #2.
+    if normalized in {
+        "ALAND",
+        "ALAND ISLANDS",
+    }:
+        return [ALAND_POSTCROSSING_NUMBER]
 
     # Holandski Antili -> four destinations.
     if normalized == "HOLANDSKI ANTILI":
@@ -760,6 +805,178 @@ def get_postcrossing_numbers(country_name):
 
 
 # ============================================================
+# FINSKA / ÅLAND EXCEPTION HELPERS
+# ============================================================
+
+def is_finska(country_name):
+    """
+    Return True if the BH Posta country is Finska.
+    """
+
+    normalized = normalize_country_name(country_name)
+
+    return normalized == "FINSKA"
+
+
+def is_aland(country_name):
+    """
+    Return True if the BH Posta country represents Åland.
+    """
+
+    normalized = normalize_country_name(country_name)
+
+    return normalized in {
+        "ALAND",
+        "ALAND ISLANDS",
+    }
+
+
+def get_finska_status(status_by_country):
+    """
+    Get the status of Finska from the collected results.
+
+    Returns:
+        AVAILABLE
+        SUSPENDED
+        UNKNOWN
+        ERROR
+        None
+    """
+
+    for country, status in status_by_country.items():
+        if is_finska(country):
+            return status
+
+    return None
+
+
+def apply_finska_aland_exception(
+    status_by_country,
+    suspended,
+    unknown,
+    errors,
+):
+    """
+    Apply the special Finska -> Åland status rule.
+
+    Finska (#75) controls Åland (#2).
+
+    AVAILABLE:
+        Åland is considered available.
+
+    SUSPENDED:
+        Åland is added to SUSPENDED.
+
+    UNKNOWN:
+        Åland is added to UNKNOWN.
+
+    ERROR:
+        Åland is added to ERRORS.
+
+    Åland is never independently checked.
+    """
+
+    finska_status = get_finska_status(status_by_country)
+
+    if finska_status is None:
+        print(
+            "WARNING: Finska (#75) was not found. "
+            "Åland status cannot be inherited."
+        )
+        return
+
+    aland_country = None
+
+    for country in status_by_country:
+        if is_aland(country):
+            aland_country = country
+            break
+
+    # If Åland is not present as a BH Posta destination,
+    # there is nothing to add to the output.
+    if aland_country is None:
+        print(
+            "INFO: Åland (#2) is not present as a BH Posta "
+            "destination."
+        )
+        return
+
+    # Remove Åland from every status collection first.
+    suspended[:] = [
+        country
+        for country in suspended
+        if not is_aland(country)
+    ]
+
+    unknown[:] = [
+        country
+        for country in unknown
+        if not is_aland(country)
+    ]
+
+    errors[:] = [
+        country
+        for country in errors
+        if not is_aland(country)
+    ]
+
+    # --------------------------------------------------------
+    # Finska AVAILABLE -> Åland AVAILABLE
+    #
+    # Nothing is added to SUSPENDED / UNKNOWN / ERRORS.
+    # --------------------------------------------------------
+
+    if finska_status == "AVAILABLE":
+        print(
+            "  FINSKA (#75) AVAILABLE -> "
+            "ÅLAND (#2) AVAILABLE"
+        )
+        return
+
+    # --------------------------------------------------------
+    # Finska SUSPENDED -> Åland SUSPENDED
+    # --------------------------------------------------------
+
+    if finska_status == "SUSPENDED":
+        if aland_country not in suspended:
+            suspended.append(aland_country)
+
+        print(
+            "  FINSKA (#75) SUSPENDED -> "
+            "ÅLAND (#2) SUSPENDED"
+        )
+        return
+
+    # --------------------------------------------------------
+    # Finska UNKNOWN -> Åland UNKNOWN
+    # --------------------------------------------------------
+
+    if finska_status == "UNKNOWN":
+        if aland_country not in unknown:
+            unknown.append(aland_country)
+
+        print(
+            "  FINSKA (#75) UNKNOWN -> "
+            "ÅLAND (#2) UNKNOWN"
+        )
+        return
+
+    # --------------------------------------------------------
+    # Finska ERROR -> Åland ERROR
+    # --------------------------------------------------------
+
+    if finska_status == "ERROR":
+        if aland_country not in errors:
+            errors.append(aland_country)
+
+        print(
+            "  FINSKA (#75) ERROR -> "
+            "ÅLAND (#2) ERROR"
+        )
+        return
+
+
+# ============================================================
 # OUTPUT FORMATTING
 # ============================================================
 
@@ -777,6 +994,10 @@ def format_country(country_name):
            28|BONAIRE
            57|Curaçao
            200|Sint Maarten
+
+    Åland:
+        Åland Islands
+        -> 2|Åland Islands
 
     Unknown:
         Some Name
@@ -1422,6 +1643,9 @@ def main():
     unknown = []
     errors = []
 
+    # Stores the status of each country that was actually checked.
+    status_by_country = {}
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             headless=True,
@@ -1565,6 +1789,28 @@ def main():
                     )
                     break
 
+                # ------------------------------------------------
+                # IMPORTANT:
+                #
+                # Åland (#2) is controlled by Finska (#75).
+                #
+                # Therefore Åland is NOT independently checked.
+                # Its final status is assigned after Finska has
+                # been checked.
+                # ------------------------------------------------
+
+                if is_aland(country):
+                    print(
+                        f"[{index}/{len(destinations)}] "
+                        f"{country}"
+                    )
+                    print(
+                        "  -> SKIPPED: "
+                        "Åland (#2) inherits status from "
+                        "Finska (#75)"
+                    )
+                    continue
+
                 print(
                     f"[{index}/{len(destinations)}] "
                     f"{country}"
@@ -1575,6 +1821,8 @@ def main():
                         page,
                         code,
                     )
+
+                    status_by_country[country] = status
 
                     if status == "SUSPENDED":
                         suspended.append(country)
@@ -1601,6 +1849,7 @@ def main():
                         )
 
                     else:
+                        status_by_country[country] = "UNKNOWN"
                         unknown.append(country)
 
                         print(
@@ -1609,6 +1858,7 @@ def main():
                         )
 
                 except Exception as exc:
+                    status_by_country[country] = "ERROR"
                     errors.append(country)
 
                     print(
@@ -1658,6 +1908,26 @@ def main():
                         )
 
                 time.sleep(0.15)
+
+            # ------------------------------------------------
+            # APPLY FINNISH -> ÅLAND EXCEPTION
+            #
+            # This MUST happen after the country checks so that
+            # Finska (#75) has a known status.
+            # ------------------------------------------------
+
+            print("")
+            print(
+                "Applying Finska (#75) -> Åland (#2) "
+                "exception..."
+            )
+
+            apply_finska_aland_exception(
+                status_by_country,
+                suspended,
+                unknown,
+                errors,
+            )
 
             # ------------------------------------------------
             # Write results.
