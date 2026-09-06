@@ -790,16 +790,36 @@ def apply_finska_aland_exception(
     Åland is NEVER independently queried at BH Pošta.
     """
 
-    # --------------------------------------------------------
-    # ALWAYS put Åland into ALL COUNTRIES.
-    #
-    # This is the key fix: it does not matter whether BH Pošta
-    # has Åland in its own dropdown.
-    # --------------------------------------------------------
-    if not any(is_aland(country) for country in all_countries):
-        all_countries.append("Åland Islands")
-
     finska_status = get_finska_status(status_by_country)
+
+    # --------------------------------------------------------
+    # Åland is NOT in the BH Pošta dropdown.
+    #
+    # Insert it directly after Finska in the output list.
+    # --------------------------------------------------------
+
+    # Remove Åland first in case it somehow exists already.
+    all_countries[:] = [
+        country
+        for country in all_countries
+        if not is_aland(country)
+    ]
+
+    new_all_countries = []
+    aland_inserted = False
+
+    for country in all_countries:
+        new_all_countries.append(country)
+
+        if is_finska(country):
+            new_all_countries.append("Åland Islands")
+            aland_inserted = True
+
+    # Fallback only if Finska was somehow not present.
+    if not aland_inserted:
+        new_all_countries.append("Åland Islands")
+
+    all_countries[:] = new_all_countries
 
     # --------------------------------------------------------
     # If Finska was somehow not found, do not silently claim
