@@ -388,7 +388,6 @@ SUSPENDED COUNTRIES
 UNKNOWN COUNTRIES
 ========================================
 185|Ascension
-22|Belgija
 ???|BOUVET ISLAND
 ???|Channel Islands
 47|COCOS (KEELING) ISLANDS
@@ -414,7 +413,7 @@ SUMMARY
 ========================================
 BH Posta countries: 262
 Suspended: 109
-Unknown: 18
+Unknown: 17
 Errors: 0
 Countries without Postcrossing mapping: 8
 
