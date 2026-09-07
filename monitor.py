@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 # CONFIG
 # ============================================================
 
-URL = "https://bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/"
+URL = "https://bhpweb.posta.ba/KalkulatorCijena_WEB_app/Bos/"
 
 OUTPUT_FILE = "bh_posta_countries.txt"
 
@@ -1601,6 +1601,34 @@ def main():
                 status_by_country
             )
 
+            # ------------------------------------------------
+            # IMPORTANT:
+            #
+            # Calculate these BEFORE putting them into
+            # f-strings. This avoids the SyntaxError caused
+            # by nested quotes inside f"{any(...)}".
+            # ------------------------------------------------
+
+            aland_in_all = any(
+                is_aland(country)
+                for country in all_countries
+            )
+
+            aland_in_suspended = any(
+                is_aland(country)
+                for country in suspended
+            )
+
+            aland_in_unknown = any(
+                is_aland(country)
+                for country in unknown
+            )
+
+            aland_in_errors = any(
+                is_aland(country)
+                for country in errors
+            )
+
             print(
                 f"  Finska (#75) status = "
                 f"{finska_status}"
@@ -1609,34 +1637,22 @@ def main():
             print(
                 f"  Åland (#2) is in "
                 f"ALL COUNTRIES = "
-                f"{any("
-                    "is_aland(c) "
-                    "for c in all_countries"
-                )}"
+                f"{aland_in_all}"
             )
 
             print(
                 f"  Åland (#2) is SUSPENDED = "
-                f"{any("
-                    "is_aland(c) "
-                    "for c in suspended"
-                )}"
+                f"{aland_in_suspended}"
             )
 
             print(
                 f"  Åland (#2) is UNKNOWN = "
-                f"{any("
-                    "is_aland(c) "
-                    "for c in unknown"
-                )}"
+                f"{aland_in_unknown}"
             )
 
             print(
                 f"  Åland (#2) is ERROR = "
-                f"{any("
-                    "is_aland(c) "
-                    "for c in errors"
-                )}"
+                f"{aland_in_errors}"
             )
 
             # =================================================
