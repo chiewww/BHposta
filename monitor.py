@@ -1,3 +1,4 @@
+```python
 import re
 import sys
 import time
@@ -473,9 +474,12 @@ BH_POSTA_TO_POSTCROSSING = {
     "Tuvalu": 225,
     "Vanuatu": 233,
 
-    # Explicitly needed exception:
+    # --------------------------------------------------------
+    # ÅLAND EXCEPTION
+    #
     # Åland is NOT independently checked at BH Pošta.
     # It inherits Finland's status.
+    # --------------------------------------------------------
     "Åland Islands": 2,
 }
 
@@ -556,12 +560,17 @@ def get_postcrossing_numbers(country_name):
     # --------------------------------------------------------
     # ÅLAND - explicit and unconditional mapping
     # --------------------------------------------------------
-    if normalized in {"ALAND", "ALAND ISLANDS"}:
+
+    if normalized in {
+        "ALAND",
+        "ALAND ISLANDS",
+    }:
         return [2]
 
     # --------------------------------------------------------
     # Exact normalized BH Pošta lookup
     # --------------------------------------------------------
+
     if normalized in NORMALIZED_BH_POSTA_TO_POSTCROSSING:
         return [
             NORMALIZED_BH_POSTA_TO_POSTCROSSING[normalized]
@@ -582,13 +591,19 @@ def get_postcrossing_numbers(country_name):
     ):
         return [182]
 
-    if "U S VIRGIN" in normalized or "AMERICKI DJEVICANSKI" in normalized:
+    if (
+        "U S VIRGIN" in normalized
+        or "AMERICKI DJEVICANSKI" in normalized
+    ):
         return [242]
 
     if "TAHITI" in normalized:
         return [77]
 
-    if "SAINT EUSTATIUS" in normalized or "SVETI EUSTATIUS" in normalized:
+    if (
+        "SAINT EUSTATIUS" in normalized
+        or "SVETI EUSTATIUS" in normalized
+    ):
         return [247]
 
     return []
@@ -600,8 +615,7 @@ def format_country(country_name):
 
         number|Postcrossing name
 
-    IMPORTANT:
-    Åland is explicitly handled here so it can never become
+    Åland is explicitly handled so it can never become
     ???|Åland Islands.
     """
 
@@ -610,7 +624,11 @@ def format_country(country_name):
     # --------------------------------------------------------
     # HARD-CODE ÅLAND
     # --------------------------------------------------------
-    if normalized in {"ALAND", "ALAND ISLANDS"}:
+
+    if normalized in {
+        "ALAND",
+        "ALAND ISLANDS",
+    }:
         return "2|Åland Islands"
 
     numbers = get_postcrossing_numbers(country_name)
@@ -621,7 +639,10 @@ def format_country(country_name):
     # Special Holandski Antili handling
     if numbers == [13, 28, 57, 200]:
         names = [
-            POSTCROSSING_NUMBERS.get(number, "?")
+            POSTCROSSING_NUMBERS.get(
+                number,
+                "?"
+            )
             for number in numbers
         ]
 
@@ -648,7 +669,9 @@ def format_country(country_name):
 
 
 def is_known_country(country_name):
-    return bool(get_postcrossing_numbers(country_name))
+    return bool(
+        get_postcrossing_numbers(country_name)
+    )
 
 
 # ============================================================
@@ -662,6 +685,7 @@ def select_dopisnica(page):
         ).click(timeout=5000)
 
         time.sleep(0.5)
+
         return True
 
     except Exception:
@@ -691,7 +715,9 @@ def get_destinations(page):
         if not text:
             continue
 
-        result.append((value, text))
+        result.append(
+            (value, text)
+        )
 
     return result
 
@@ -708,6 +734,7 @@ def select_air_transport(page):
     except Exception:
         try:
             checkbox.click()
+
         except Exception:
             pass
 
@@ -719,18 +746,23 @@ def set_weight(page):
 
     try:
         weight.fill(WEIGHT)
+
     except Exception:
         try:
             weight.click()
             weight.press("Control+A")
             weight.type(WEIGHT)
+
         except Exception:
             pass
 
 
 def read_page_text(page):
     try:
-        return page.locator("body").inner_text()
+        return page.locator(
+            "body"
+        ).inner_text()
+
     except Exception:
         return ""
 
@@ -747,23 +779,26 @@ def calculate_country(page, code):
 
         select.select_option(code)
 
-        time.sleep(COUNTRY_WAIT_MS / 1000)
+        time.sleep(
+            COUNTRY_WAIT_MS / 1000
+        )
 
         body_text = read_page_text(page)
 
-        if SUSPENDED_MESSAGE.lower() in body_text.lower():
+        if (
+            SUSPENDED_MESSAGE.lower()
+            in body_text.lower()
+        ):
             return "SUSPENDED"
 
-        # If the calculator has a normal price/result,
-        # regard it as available.
-        #
-        # The original script relied primarily on the absence
-        # of the suspension message.
+        # Absence of the suspension message means
+        # the destination is treated as available.
         return "AVAILABLE"
 
     except Exception as exc:
         print(
-            f"    ERROR while checking destination {code}: {exc}"
+            f"    ERROR while checking destination "
+            f"{code}: {exc}"
         )
 
         return "ERROR"
@@ -785,11 +820,15 @@ def apply_finska_aland_exception(
 
     Finska AVAILABLE  -> Åland AVAILABLE
     Finska SUSPENDED  -> Åland SUSPENDED
+    Finska UNKNOWN    -> Åland UNKNOWN
+    Finska ERROR      -> Åland ERROR
 
     Åland is NEVER independently queried at BH Pošta.
     """
 
-    finska_status = get_finska_status(status_by_country)
+    finska_status = get_finska_status(
+        status_by_country
+    )
 
     # --------------------------------------------------------
     # Åland is NOT in the BH Pošta dropdown.
@@ -811,19 +850,24 @@ def apply_finska_aland_exception(
         new_all_countries.append(country)
 
         if is_finska(country):
-            new_all_countries.append("Åland Islands")
+            new_all_countries.append(
+                "Åland Islands"
+            )
+
             aland_inserted = True
 
     # Fallback only if Finska was somehow not present.
     if not aland_inserted:
-        new_all_countries.append("Åland Islands")
+        new_all_countries.append(
+            "Åland Islands"
+        )
 
     all_countries[:] = new_all_countries
 
     # --------------------------------------------------------
-    # If Finska was somehow not found, do not silently claim
-    # Åland is available.
+    # If Finska was not found, mark Åland UNKNOWN.
     # --------------------------------------------------------
+
     if finska_status is None:
         print(
             "\nWARNING: Finska (#75) was not found."
@@ -834,14 +878,20 @@ def apply_finska_aland_exception(
             "but is marked UNKNOWN."
         )
 
-        if not any(is_aland(country) for country in unknown):
-            unknown.append("Åland Islands")
+        if not any(
+            is_aland(country)
+            for country in unknown
+        ):
+            unknown.append(
+                "Åland Islands"
+            )
 
         return
 
     # --------------------------------------------------------
     # Remove any previous Åland classification.
     # --------------------------------------------------------
+
     suspended[:] = [
         country
         for country in suspended
@@ -874,8 +924,7 @@ def apply_finska_aland_exception(
             "  -> ÅLAND ISLANDS (#2) AVAILABLE"
         )
 
-        # Nothing is added to suspended/unknown/errors.
-        # Therefore Åland belongs to ALL COUNTRIES only.
+        # Åland remains only in ALL COUNTRIES.
 
     elif finska_status == "SUSPENDED":
 
@@ -887,8 +936,13 @@ def apply_finska_aland_exception(
             "  -> ÅLAND ISLANDS (#2) SUSPENDED"
         )
 
-        if not any(is_aland(country) for country in suspended):
-            suspended.append("Åland Islands")
+        if not any(
+            is_aland(country)
+            for country in suspended
+        ):
+            suspended.append(
+                "Åland Islands"
+            )
 
     elif finska_status == "UNKNOWN":
 
@@ -900,8 +954,13 @@ def apply_finska_aland_exception(
             "  -> ÅLAND ISLANDS (#2) UNKNOWN"
         )
 
-        if not any(is_aland(country) for country in unknown):
-            unknown.append("Åland Islands")
+        if not any(
+            is_aland(country)
+            for country in unknown
+        ):
+            unknown.append(
+                "Åland Islands"
+            )
 
     elif finska_status == "ERROR":
 
@@ -913,8 +972,13 @@ def apply_finska_aland_exception(
             "  -> ÅLAND ISLANDS (#2) ERROR"
         )
 
-        if not any(is_aland(country) for country in errors):
-            errors.append("Åland Islands")
+        if not any(
+            is_aland(country)
+            for country in errors
+        ):
+            errors.append(
+                "Åland Islands"
+            )
 
 
 # ============================================================
@@ -927,21 +991,76 @@ def write_output_file(
     unknown,
     errors,
 ):
-    output_path = Path(OUTPUT_FILE)
+    output_path = Path(
+        OUTPUT_FILE
+    )
 
-    # --------------------------------------------------------
-    # Make sure Åland is ALWAYS present.
-    # --------------------------------------------------------
-    if not any(is_aland(country) for country in all_countries):
-        all_countries.append("Åland Islands")
+    # ========================================================
+    # FORCE ÅLAND IMMEDIATELY AFTER FINSKA
+    # ========================================================
+    #
+    # This is the additional safeguard.
+    #
+    # Remove any existing Åland entry and then insert
+    # Åland immediately after Finska.
+    #
+    # Åland is NEVER independently checked.
+    # ========================================================
 
-    # Remove duplicates while preserving order.
+    # Remove any existing Åland entry.
+    all_countries = [
+        country
+        for country in all_countries
+        if not is_aland(country)
+    ]
+
+    # Insert Åland directly after Finska.
+    new_all_countries = []
+    aland_inserted = False
+
+    for country in all_countries:
+        new_all_countries.append(
+            country
+        )
+
+        if is_finska(country):
+            new_all_countries.append(
+                "Åland Islands"
+            )
+
+            aland_inserted = True
+
+    # If Finska somehow does not exist, add Åland at the end
+    # rather than losing it completely.
+    if not aland_inserted:
+        print(
+            "\nWARNING: Finska (#75) was not found while "
+            "writing the output file."
+        )
+
+        print(
+            "Åland (#2) will be added at the end of "
+            "ALL COUNTRIES."
+        )
+
+        new_all_countries.append(
+            "Åland Islands"
+        )
+
+    all_countries = new_all_countries
+
+    # ========================================================
+    # REMOVE DUPLICATES WHILE PRESERVING ORDER
+    # ========================================================
+
     def unique(items):
         result = []
         seen = set()
 
         for item in items:
-            key = normalize_country_name(item)
+            key = normalize_country_name(
+                item
+            )
 
             if key not in seen:
                 seen.add(key)
@@ -949,10 +1068,21 @@ def write_output_file(
 
         return result
 
-    all_countries = unique(all_countries)
-    suspended = unique(suspended)
-    unknown = unique(unknown)
-    errors = unique(errors)
+    all_countries = unique(
+        all_countries
+    )
+
+    suspended = unique(
+        suspended
+    )
+
+    unknown = unique(
+        unknown
+    )
+
+    errors = unique(
+        errors
+    )
 
     lines = []
 
@@ -960,11 +1090,18 @@ def write_output_file(
     # ALL COUNTRIES
     # ========================================================
 
-    lines.append("ALL COUNTRIES")
-    lines.append("=" * 80)
+    lines.append(
+        "ALL COUNTRIES"
+    )
+
+    lines.append(
+        "=" * 80
+    )
 
     for country in all_countries:
-        lines.append(format_country(country))
+        lines.append(
+            format_country(country)
+        )
 
     lines.append("")
     lines.append("")
@@ -973,14 +1110,23 @@ def write_output_file(
     # SUSPENDED
     # ========================================================
 
-    lines.append("SUSPENDED COUNTRIES")
-    lines.append("=" * 80)
+    lines.append(
+        "SUSPENDED COUNTRIES"
+    )
+
+    lines.append(
+        "=" * 80
+    )
 
     if suspended:
         for country in suspended:
-            lines.append(format_country(country))
+            lines.append(
+                format_country(country)
+            )
     else:
-        lines.append("None")
+        lines.append(
+            "None"
+        )
 
     lines.append("")
     lines.append("")
@@ -989,14 +1135,23 @@ def write_output_file(
     # UNKNOWN
     # ========================================================
 
-    lines.append("UNKNOWN COUNTRIES")
-    lines.append("=" * 80)
+    lines.append(
+        "UNKNOWN COUNTRIES"
+    )
+
+    lines.append(
+        "=" * 80
+    )
 
     if unknown:
         for country in unknown:
-            lines.append(format_country(country))
+            lines.append(
+                format_country(country)
+            )
     else:
-        lines.append("None")
+        lines.append(
+            "None"
+        )
 
     lines.append("")
     lines.append("")
@@ -1005,14 +1160,23 @@ def write_output_file(
     # ERRORS
     # ========================================================
 
-    lines.append("ERROR COUNTRIES")
-    lines.append("=" * 80)
+    lines.append(
+        "ERROR COUNTRIES"
+    )
+
+    lines.append(
+        "=" * 80
+    )
 
     if errors:
         for country in errors:
-            lines.append(format_country(country))
+            lines.append(
+                format_country(country)
+            )
     else:
-        lines.append("None")
+        lines.append(
+            "None"
+        )
 
     lines.append("")
     lines.append("")
@@ -1021,27 +1185,36 @@ def write_output_file(
     # SUMMARY
     # ========================================================
 
-    lines.append("SUMMARY")
-    lines.append("=" * 80)
-
     lines.append(
-        f"ALL COUNTRIES: {len(all_countries)}"
+        "SUMMARY"
     )
 
     lines.append(
-        f"SUSPENDED: {len(suspended)}"
+        "=" * 80
     )
 
     lines.append(
-        f"UNKNOWN: {len(unknown)}"
+        f"ALL COUNTRIES: "
+        f"{len(all_countries)}"
     )
 
     lines.append(
-        f"ERRORS: {len(errors)}"
+        f"SUSPENDED: "
+        f"{len(suspended)}"
+    )
+
+    lines.append(
+        f"UNKNOWN: "
+        f"{len(unknown)}"
+    )
+
+    lines.append(
+        f"ERRORS: "
+        f"{len(errors)}"
     )
 
     # --------------------------------------------------------
-    # Explicit Åland diagnostic
+    # Åland diagnostic
     # --------------------------------------------------------
 
     aland_in_all = any(
@@ -1065,6 +1238,7 @@ def write_output_file(
     )
 
     lines.append("")
+
     lines.append(
         f"ÅLAND #2 IN ALL COUNTRIES: "
         f"{'YES' if aland_in_all else 'NO'}"
@@ -1096,14 +1270,28 @@ def write_output_file(
     ]
 
     lines.append("")
-    lines.append("UNMAPPED BH POŠTA NAMES")
-    lines.append("=" * 80)
+
+    lines.append(
+        "UNMAPPED BH POŠTA NAMES"
+    )
+
+    lines.append(
+        "=" * 80
+    )
 
     if unmapped:
         for country in unmapped:
-            lines.append(country)
+            lines.append(
+                country
+            )
     else:
-        lines.append("None")
+        lines.append(
+            "None"
+        )
+
+    # ========================================================
+    # WRITE FILE
+    # ========================================================
 
     output_path.write_text(
         "\n".join(lines),
@@ -1111,7 +1299,8 @@ def write_output_file(
     )
 
     print(
-        f"\nOutput written to: {output_path.resolve()}"
+        f"\nOutput written to: "
+        f"{output_path.resolve()}"
     )
 
 
@@ -1139,7 +1328,10 @@ def main():
         page = browser.new_page()
 
         try:
-            print("Opening BH Pošta calculator...")
+            print(
+                "Opening BH Pošta calculator..."
+            )
+
             page.goto(
                 URL,
                 wait_until="domcontentloaded",
@@ -1148,14 +1340,21 @@ def main():
 
             time.sleep(1)
 
-            print("Selecting Dopisnica...")
+            print(
+                "Selecting Dopisnica..."
+            )
+
             select_dopisnica(page)
 
             time.sleep(0.5)
 
-            print("Reading BH Pošta destinations...")
+            print(
+                "Reading BH Pošta destinations..."
+            )
 
-            destinations = get_destinations(page)
+            destinations = get_destinations(
+                page
+            )
 
             if not destinations:
                 print(
@@ -1165,32 +1364,48 @@ def main():
                 return
 
             print(
-                f"Found {len(destinations)} destinations."
+                f"Found {len(destinations)} "
+                f"destinations."
             )
 
             # ------------------------------------------------
             # Select air transport and weight.
             # ------------------------------------------------
 
-            print("Selecting air transport...")
-            select_air_transport(page)
+            print(
+                "Selecting air transport..."
+            )
 
-            print("Setting weight...")
-            set_weight(page)
+            select_air_transport(
+                page
+            )
+
+            print(
+                "Setting weight..."
+            )
+
+            set_weight(
+                page
+            )
 
             time.sleep(0.5)
 
-            # Re-read destinations after changing the options.
-            destinations_after_options = get_destinations(page)
+            # Re-read destinations after changing options.
+            destinations_after_options = (
+                get_destinations(page)
+            )
 
             if destinations_after_options:
-                destinations = destinations_after_options
+                destinations = (
+                    destinations_after_options
+                )
 
             # ------------------------------------------------
             # IMPORTANT:
             #
-            # Åland is virtual for this script. It does not
-            # need to exist in the BH Pošta dropdown.
+            # Åland is virtual for this script.
+            # It does not need to exist in the BH Pošta
+            # dropdown.
             # ------------------------------------------------
 
             all_countries = [
@@ -1200,7 +1415,8 @@ def main():
             ]
 
             print(
-                f"Checking {len(destinations)} BH Pošta destinations..."
+                f"Checking {len(destinations)} "
+                f"BH Pošta destinations..."
             )
 
             print(
@@ -1208,7 +1424,8 @@ def main():
             )
 
             print(
-                "  Åland (#2) will inherit Finska (#75)."
+                "  Åland (#2) will inherit "
+                "Finska (#75)."
             )
 
             # ------------------------------------------------
@@ -1223,13 +1440,16 @@ def main():
 
                 if is_aland(country):
                     print(
-                        f"  {country} -> 2|Åland Islands "
-                        "(controlled by Finska #75)"
+                        f"  {country} -> "
+                        f"2|Åland Islands "
+                        f"(controlled by Finska #75)"
                     )
+
                     continue
 
                 print(
-                    f"  {country} -> {format_country(country)}"
+                    f"  {country} -> "
+                    f"{format_country(country)}"
                 )
 
             # ------------------------------------------------
@@ -1241,12 +1461,19 @@ def main():
                 start=1
             ):
 
-                elapsed = time.time() - start_time
+                elapsed = (
+                    time.time()
+                    - start_time
+                )
 
-                if elapsed > MAX_RUNTIME_SECONDS:
+                if (
+                    elapsed
+                    > MAX_RUNTIME_SECONDS
+                ):
                     print(
                         "\nMaximum runtime reached."
                     )
+
                     break
 
                 # --------------------------------------------
@@ -1255,7 +1482,8 @@ def main():
 
                 if is_aland(country):
                     print(
-                        f"\n[{index}/{len(destinations)}] "
+                        f"\n[{index}/"
+                        f"{len(destinations)}] "
                         f"{country}"
                     )
 
@@ -1267,7 +1495,8 @@ def main():
                     continue
 
                 print(
-                    f"\n[{index}/{len(destinations)}] "
+                    f"\n[{index}/"
+                    f"{len(destinations)}] "
                     f"{country}"
                 )
 
@@ -1285,7 +1514,9 @@ def main():
                 # Store authoritative status.
                 # --------------------------------------------
 
-                status_by_country[country] = status
+                status_by_country[
+                    country
+                ] = status
 
                 if status == "AVAILABLE":
 
@@ -1299,7 +1530,9 @@ def main():
                         "  -> SUSPENDED"
                     )
 
-                    suspended.append(country)
+                    suspended.append(
+                        country
+                    )
 
                 elif status == "UNKNOWN":
 
@@ -1307,7 +1540,9 @@ def main():
                         "  -> UNKNOWN"
                     )
 
-                    unknown.append(country)
+                    unknown.append(
+                        country
+                    )
 
                 elif status == "ERROR":
 
@@ -1315,7 +1550,9 @@ def main():
                         "  -> ERROR"
                     )
 
-                    errors.append(country)
+                    errors.append(
+                        country
+                    )
 
                 # --------------------------------------------
                 # Recovery / pacing.
@@ -1356,7 +1593,8 @@ def main():
             )
 
             print(
-                f"  format_country('Åland Islands') = "
+                f"  format_country("
+                f"'Åland Islands') = "
                 f"{format_country('Åland Islands')}"
             )
 
@@ -1370,18 +1608,36 @@ def main():
             )
 
             print(
-                f"  Åland (#2) is in ALL COUNTRIES = "
-                f"{any(is_aland(c) for c in all_countries)}"
+                f"  Åland (#2) is in "
+                f"ALL COUNTRIES = "
+                f"{any("
+                    "is_aland(c) "
+                    "for c in all_countries"
+                )}"
             )
 
             print(
                 f"  Åland (#2) is SUSPENDED = "
-                f"{any(is_aland(c) for c in suspended)}"
+                f"{any("
+                    "is_aland(c) "
+                    "for c in suspended"
+                )}"
             )
 
             print(
                 f"  Åland (#2) is UNKNOWN = "
-                f"{any(is_aland(c) for c in unknown)}"
+                f"{any("
+                    "is_aland(c) "
+                    "for c in unknown"
+                )}"
+            )
+
+            print(
+                f"  Åland (#2) is ERROR = "
+                f"{any("
+                    "is_aland(c) "
+                    "for c in errors"
+                )}"
             )
 
             # =================================================
@@ -1403,23 +1659,32 @@ def main():
                 "\n" + "=" * 80
             )
 
-            print("DONE")
-            print("=" * 80)
-
             print(
-                f"All countries: {len(all_countries)}"
+                "DONE"
             )
 
             print(
-                f"Suspended: {len(suspended)}"
+                "=" * 80
             )
 
             print(
-                f"Unknown: {len(unknown)}"
+                f"All countries: "
+                f"{len(all_countries)}"
             )
 
             print(
-                f"Errors: {len(errors)}"
+                f"Suspended: "
+                f"{len(suspended)}"
+            )
+
+            print(
+                f"Unknown: "
+                f"{len(unknown)}"
+            )
+
+            print(
+                f"Errors: "
+                f"{len(errors)}"
             )
 
             print(
@@ -1431,16 +1696,35 @@ def main():
             )
 
             if finska_status == "AVAILABLE":
+
                 print(
                     "  Status: AVAILABLE "
                     "(inherited from Finska #75)"
                 )
+
             elif finska_status == "SUSPENDED":
+
                 print(
                     "  Status: SUSPENDED "
                     "(inherited from Finska #75)"
                 )
+
+            elif finska_status == "UNKNOWN":
+
+                print(
+                    "  Status: UNKNOWN "
+                    "(inherited from Finska #75)"
+                )
+
+            elif finska_status == "ERROR":
+
+                print(
+                    "  Status: ERROR "
+                    "(inherited from Finska #75)"
+                )
+
             else:
+
                 print(
                     f"  Status: {finska_status}"
                 )
@@ -1454,15 +1738,23 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
+
     try:
         main()
 
     except KeyboardInterrupt:
-        print("\nInterrupted by user.")
+
+        print(
+            "\nInterrupted by user."
+        )
+
         sys.exit(1)
 
     except Exception as exc:
+
         print(
             f"\nFATAL ERROR: {exc}"
         )
+
         sys.exit(1)
+```
