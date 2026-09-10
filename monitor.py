@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 # CONFIG
 # ============================================================
 
-URL = "https://bhpweb.posta.ba/KalkulatorCijena_WEB_app/Bos/"
+URL = "https://bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/Default.aspx"
 
 OUTPUT_FILE = "bh_posta_countries.txt"
 
