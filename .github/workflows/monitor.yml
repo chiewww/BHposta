@@ -1,5 +1,4 @@
-name: Monitor BH Posta Countries
-
+name: Monitor BH Posta 
 on:
   schedule:
     # Run once every day at 03:00 UTC.
