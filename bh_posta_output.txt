@@ -1,109 +1,122 @@
 AVAILABLE DESTINATIONS (order of BH Posta drop-down)
 ================================================================================
-4. Alžir (Algeria) 2,20KM 12-17 days
-7. Angola (Angola) 2,20KM 12-20 days
-12. Armenija (Armenia) 2,00KM 14-19 days
-14. Australija (Australia) 2,20KM 18-21 days
-15. Austrija (Austria) 2,00KM 5-7 days
-16. Azerbejdžan (Azerbaijan) 2,20KM 14-17 days
-19. Bangladeš (Bangladesh) 2,20KM 15-20 days
-22. Belgija (Belgium) 2,00KM 6-9 days
-24. Benin (Benin) 2,20KM 14-18 days
-21. Bjelorusija (Belarus) 2,00KM 11-15 days
-27. Bolivija (Bolivia) 2,20KM 13-20 days
-31. Brazil (Brazil) 2,20KM 12-22 days
-34. Bugarska (Bulgaria) 2,00KM 7-10 days
-35. Burkina Faso (Burkina Faso) 2,20KM 14-21 days
-36. Burundi (Burundi) 2,20KM 9-15 days
-43. Cad (Chad) 2,20KM 14-25 days
-44. Cile (Chile) 2,20KM 11-17 days
-47. COCOS (KEELING) ISLANDS (Cocos Islands) 2,20KM 11-17 days
-147. Crna Gora (Montenegro) 2,00KM 6-10 days
-60. Danska (Denmark) 2,00KM 6-8 days
-65. Egipat (Egypt) 2,20KM 13-20 days
-68. Eritreja (Eritrea) 2,20KM 11-14 days
-69. Estonija (Estonia) 2,00KM 11-15 days
-174. Filipini (Philippines) 2,20KM 11-22 days
-75. Finska (Finland) 2,00KM 8-11 days
-76. Francuska (France) 2,00KM 9-12 days
-80. Gabon (Gabon) 2,20KM 10-15 days
-86. Grcka (Greece) 2,00KM 9-13 days
-91. Gvatemala (Guatemala) 2,20KM 13-18 days
-93. Gvineja (Guinea) 2,20KM 13-19 days
-155. Holandija (Netherlands) 2,00KM 6-8 days
-55. Hrvatska (Croatia) 2,00KM 5-9 days
-101. Indija (India) 2,20KM 14-26 days
-102. Indonezija (Indonesia) 2,20KM 16-30 days
-105. Irska (Ireland) 2,00KM 7-12 days
-108. Italija (Italy) 2,00KM 6-9 days
-110. Japan (Japan) 2,20KM 10-18 days
-112. Jordan (Jordan) 2,20KM 11-16 days
-205. Južnoafricka Republika (South Africa) 2,20KM 13-20 days
-38. Kambodža (Cambodia) 2,20KM 14-22 days
-39. Kamerun (Cameroon) 2,20KM 16-20 days
-40. Kanada (Canada) 2,10KM 14-23 days
-179. Katar (Qatar) 2,20KM 13-18 days
-113. Kazahstan (Kazakhstan) 2,20KM 11-19 days
-58. Kipar (Cyprus) 2,00KM 13-19 days
-120. Kirgistan (Kyrgyzstan) 2,20KM 13-21 days
-119. Kuvajt (Kuwait) 2,20KM 14-18 days
-122. Latvija (Latvia) 2,00KM 9-15 days
-128. Litvanija (Lithuania) 2,00KM 10-13 days
-129. Luksemburg (Luxembourg) 2,00KM 7-10 days
-131. Madagaskar (Madagascar) 2,20KM 14-25 days
-99. Mađarska (Hungary) 2,00KM 7-11 days
-133. Malezija (Malaysia) 2,20KM 14-30 days
-135. Mali (Mali) 2,20KM 12-19 days
-136. Malta (Malta) 2,00KM 9-12 days
-149. Maroko (Morocco) 2,20KM 12-21 days
-140. Mauricijus (Mauritius) 2,20KM 10-17 days
-144. Moldavija (Moldova) 2,00KM 15-19 days
-146. Mongolija (Mongolia) 2,20KM 18-22 days
-150. Mozambik (Mozambique) 2,20KM 20-26 days
-152. Namibija (Namibia) 2,20KM 16-20 days
-154. Nepal (Nepal) 2,20KM 18-29 days
-159. Niger (Niger) 2,20KM 8-14 days
-160. Nigerija (Nigeria) 2,20KM 12-20 days
-158. Nikaragva (Nicaragua) 2,20KM 13-19 days
-165. Norveška (Norway) 2,00KM 7-10 days
-157. Novi Zeland (New Zealand) 2,20KM 12-20 days
-83. Njemacka (Germany) 2,00KM 7-10 days
-167. Pakistan (Pakistan) 2,20KM 11-14 days
-170. Panama (Panama) 2,20KM 12-17 days
-171. Papua Nova Gvineja (Papua New Guinea) 2,20KM 14-21 days
-176. Poljska (Poland) 2,00KM 7-10 days
-177. Portugal (Portugal) 2,00KM 7-14 days
-181. Rumunija (Romania) 2,00KM 11-15 days
-194. Saudijska Arabija (Saudi Arabia) 2,20KM 14-18 days
-195. Senegal (Senegal) 2,20KM 13-22 days
-199. Singapur (Singapore) 2,20KM 13-18 days
-201. Slovacka (Slovakia) 2,00KM 7-10 days
-202. Slovenija (Slovenia) 2,00KM 5-8 days
-196. Srbija (Serbia) 2,00KM 6-10 days
-208. Španija (Spain) 2,00KM 7-11 days
-209. Šri Lanka (Sri Lanka) 2,20KM 16-23 days
-213. Švedska (Sweden) 2,00KM 6-9 days
-214. Švicarska (Switzerland) 2,00KM 6-9 days
-217. Tadžikistan (Tajikistan) 2,20KM 16-21 days
-218. Tanzanija (Tanzania) 2,20KM 14-20 days
-225. Tunis (Tunisia) 2,20KM 11-17 days
-227. Turkmenistan (Turkmenistan) 2,20KM 13-18 days
-226. Turska (Turkey) 2,00KM 7-14 days
-230. Uganda (Uganda) 2,20KM 19-29 days
-232. Ujedinjeni Arapski Emirati (United Arab Emirates) 2,20KM 11-18 days
-231. Ukrajina (Ukraine) 2,00KM 9-16 days
-237. Uzbekistan (Uzbekistan) 2,20KM 13-17 days
-233. Velika Britanija (United Kingdom) 2,00KM 6-8 days
-247. Zambija (Zambia) 2,20KM 16-20 days
-248. Zimbabve (Zimbabwe) 2,20KM 14-19 days
+3. Albanija (Albania) 1,80KM 7-11 days
+4. Alžir (Algeria) 1,80KM 12-17 days
+7. Angola (Angola) 1,80KM 12-20 days
+11. Argentina (Argentina) 1,80KM 13-21 days
+12. Armenija (Armenia) 1,80KM 14-19 days
+14. Australija (Australia) 1,80KM 18-21 days
+15. Austrija (Austria) 1,80KM 5-7 days
+16. Azerbejdžan (Azerbaijan) 1,80KM 14-17 days
+19. Bangladeš (Bangladesh) 1,80KM 15-20 days
+22. Belgija (Belgium) 1,80KM 6-9 days
+24. Benin (Benin) 1,80KM 14-18 days
+21. Bjelorusija (Belarus) 1,80KM 11-15 days
+27. Bolivija (Bolivia) 1,80KM 13-20 days
+31. Brazil (Brazil) 1,80KM 12-22 days
+33. Brunei Daruselam (Brunei) 1,80KM 17-21 days
+34. Bugarska (Bulgaria) 1,80KM 7-10 days
+35. Burkina Faso (Burkina Faso) 1,80KM 14-21 days
+36. Burundi (Burundi) 1,80KM 9-15 days
+43. Cad (Chad) 1,80KM 14-25 days
+44. Cile (Chile) 1,80KM 11-17 days
+147. Crna Gora (Montenegro) 1,80KM 6-10 days
+59. Češka Republika (Czechia) 1,80KM 7-10 days
+60. Danska (Denmark) 1,80KM 6-8 days
+65. Egipat (Egypt) 1,80KM 13-20 days
+68. Eritreja (Eritrea) 1,80KM 11-14 days
+69. Estonija (Estonia) 1,80KM 11-15 days
+70. ESVATINI (SVAZILEND) (Eswatini / Swaziland) 1,80KM 15-20 days
+174. Filipini (Philippines) 1,80KM 11-22 days
+75. Finska (Finland) 1,80KM 8-11 days
+76. Francuska (France) 1,80KM 9-12 days
+80. Gabon (Gabon) 1,80KM 10-15 days
+86. Grcka (Greece) 1,80KM 9-13 days
+91. Gvatemala (Guatemala) 1,80KM 13-18 days
+93. Gvineja (Guinea) 1,80KM 13-19 days
+155. Holandija (Netherlands) 1,80KM 6-8 days
+98. Hong Kong, Kina (Hong Kong) 1,80KM 13-17 days
+55. Hrvatska (Croatia) 1,80KM 5-9 days
+101. Indija (India) 1,80KM 14-26 days
+102. Indonezija (Indonesia) 1,80KM 16-30 days
+105. Irska (Ireland) 1,80KM 7-12 days
+108. Italija (Italy) 1,80KM 6-9 days
+110. Japan (Japan) 1,80KM 10-18 days
+112. Jordan (Jordan) 1,80KM 11-16 days
+205. Južnoafricka Republika (South Africa) 1,80KM 13-20 days
+38. Kambodža (Cambodia) 1,80KM 14-22 days
+39. Kamerun (Cameroon) 1,80KM 16-20 days
+40. Kanada (Canada) 1,80KM 14-23 days
+179. Katar (Qatar) 1,80KM 13-18 days
+113. Kazahstan (Kazakhstan) 1,80KM 11-19 days
+58. Kipar (Cyprus) 1,80KM 13-19 days
+120. Kirgistan (Kyrgyzstan) 1,80KM 13-21 days
+117. Koreja (Rep.) (Korea (South)) 1,80KM 18-21 days
+119. Kuvajt (Kuwait) 1,80KM 14-18 days
+122. Latvija (Latvia) 1,80KM 9-15 days
+128. Litvanija (Lithuania) 1,80KM 10-13 days
+129. Luksemburg (Luxembourg) 1,80KM 7-10 days
+131. Madagaskar (Madagascar) 1,80KM 14-25 days
+99. Mađarska (Hungary) 1,80KM 7-11 days
+133. Malezija (Malaysia) 1,80KM 14-30 days
+135. Mali (Mali) 1,80KM 12-19 days
+136. Malta (Malta) 1,80KM 9-12 days
+149. Maroko (Morocco) 1,80KM 12-21 days
+140. Mauricijus (Mauritius) 1,80KM 10-17 days
+151. Mianmar (Myanmar) 1,80KM 12-19 days
+144. Moldavija (Moldova) 1,80KM 15-19 days
+146. Mongolija (Mongolia) 1,80KM 18-22 days
+150. Mozambik (Mozambique) 1,80KM 20-26 days
+152. Namibija (Namibia) 1,80KM 16-20 days
+154. Nepal (Nepal) 1,80KM 18-29 days
+159. Niger (Niger) 1,80KM 8-14 days
+160. Nigerija (Nigeria) 1,80KM 12-20 days
+158. Nikaragva (Nicaragua) 1,80KM 13-19 days
+165. Norveška (Norway) 1,80KM 7-10 days
+157. Novi Zeland (New Zealand) 1,80KM 12-20 days
+83. Njemacka (Germany) 1,80KM 7-10 days
+167. Pakistan (Pakistan) 1,80KM 11-14 days
+170. Panama (Panama) 1,80KM 12-17 days
+171. Papua Nova Gvineja (Papua New Guinea) 1,80KM 14-21 days
+176. Poljska (Poland) 1,80KM 7-10 days
+177. Portugal (Portugal) 1,80KM 7-14 days
+164. Republika Sjeverna Makedonija (North Macedonia) 1,80KM 5-8 days
+181. Rumunija (Romania) 1,80KM 11-15 days
+182. Ruska Federacija (Russia) 1,80KM 14-24 days
+235. SAD Sjedinjene Americke Države (U.S.A.) 1,80KM 12-18 days
+66. Salvador (El Salvador) 1,80KM 15-19 days
+194. Saudijska Arabija (Saudi Arabia) 1,80KM 14-18 days
+195. Senegal (Senegal) 1,80KM 13-22 days
+199. Singapur (Singapore) 1,80KM 13-18 days
+201. Slovacka (Slovakia) 1,80KM 7-10 days
+202. Slovenija (Slovenia) 1,80KM 5-8 days
+196. Srbija (Serbia) 1,80KM 6-10 days
+208. Španija (Spain) 1,80KM 7-11 days
+209. Šri Lanka (Sri Lanka) 1,80KM 16-23 days
+213. Švedska (Sweden) 1,80KM 6-9 days
+214. Švicarska (Switzerland) 1,80KM 6-7 days
+217. Tadžikistan (Tajikistan) 1,80KM 16-21 days
+218. Tanzanija (Tanzania) 1,80KM 14-20 days
+225. Tunis (Tunisia) 1,80KM 11-17 days
+227. Turkmenistan (Turkmenistan) 1,80KM 13-18 days
+226. Turska (Turkey) 1,80KM 7-14 days
+230. Uganda (Uganda) 1,80KM 19-29 days
+232. Ujedinjeni Arapski Emirati (United Arab Emirates) 1,80KM 11-18 days
+231. Ukrajina (Ukraine) 1,80KM 9-16 days
+237. Uzbekistan (Uzbekistan) 1,80KM 13-17 days
+233. Velika Britanija (United Kingdom) 1,80KM 6-8 days
+247. Zambija (Zambia) 1,80KM 16-20 days
+248. Zimbabve (Zimbabwe) 1,80KM 14-19 days
 
 
 SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 ================================================================================
+1. Afganistan (Afghanistan)
+243. Amer.Djevičanska Ostrva (Virgin Islands of the USA)
 5. AMERICAN SAMOA (American Samoa)
 6. ANDORRA (Andorra)
 8. ANGUILLA (Anguilla)
-11. Argentina (Argentina)
+10. Antiga i Barbuda (Antigua & Barbuda)
 13. Aruba (Aruba)
 185. Saint Helena, Ascension and Tristan da Cunha (Ascension and Tristan da Cunha are suspended)
 17. Bahami (Bahamas)
@@ -116,8 +129,10 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 29. Bosna i Hercegovina (Bosnia-Herzegovina)
 32. BRITISH INDIAN OCEAN TERRITORY (British Indian Ocean Territory)
 26. Butan (Bhutan)
+37. Cap-Vert (Zeleni-Rt) (Cabo Verde)
 42. Centralnoafricka Republika (Central African Republic)
 46. CHRISTMAS ISLAND (Christmas Island)
+47. COCOS (KEELING) ISLANDS (Cocos Islands)
 52. COOK ISLANDS (Cook Islands)
 62. Dominika (Dominica)
 63. Dominikanska Republika (Dominican Republic)
@@ -126,6 +141,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 67. Ekvatorijalna Gvineja (Equatorial Guinea)
 71. Etiopija (Ethiopia)
 72. FALKLAND ISLANDS (MALVINAS) (Falkland Islands / Malvinas)
+73. Farski otoci (Faroe Islands)
 74. Fidži (Fiji)
 77. FRENCH GUIANA (French Guiana)
 79. FRENCH SOUTHERN TERRITORIES (French Southern Territories)
@@ -137,7 +153,9 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 82. Gruzija (Georgia)
 90. GUAM (Guam)
 92. Guernsey (Guernsey)
+89. Gvadelupe (Guadeloupe)
 95. Gvajana (Guyana)
+94. Gvineja Bisao (Guinea-Bissau)
 96. Haiti (Haiti)
 57. Holandski Antili (Curaçao)
 200. Holandski Antili (Sint Maarten)
@@ -149,12 +167,17 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 109. Jamajka (Jamaica)
 246. Jemen (Yemen)
 111. Jersey (Jersey)
+206. Južna Džodžija i Sandwich otoci (South Georgia and S. Sandwich Islands)
 207. Južni Sudan (South Sudan)
+41. Kajmanski otoci (Cayman Islands)
 114. Kenija (Kenya)
 45. Kina (China)
 115. Kiribati (Kiribati)
 48. Kolumbija (Colombia)
 49. Komori (Comoros)
+51. Kongo (Dem.Rep.) (Dem. Rep. of Congo)
+50. Kongo (Rep.) (Congo)
+116. Koreja (Dem.Rep.) (Korea (North))
 118. Kosovo (Kosovo)
 53. Kostarika (Costa Rica)
 56. Kuba (Cuba)
@@ -164,6 +187,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 125. Liberija (Liberia)
 126. Libija (Libya)
 127. Lihtenštajn (Liechtenstein)
+130. Makao, Kina (Macao)
 132. Malavi (Malawi)
 134. Maldivi (Maldives)
 137. MARSHALL ISLANDS (Marshall Islands)
@@ -171,6 +195,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 139. Mauritanija (Mauritania)
 141. MAYOTTE (Mayotte)
 142. Meksiko (Mexico)
+143. MICRONESIA, FEDERATED STATES OF (Micronesia)
 145. Monako (Monaco)
 148. MONTSERRAT (Montserrat)
 153. Nauru (Nauru / Naoero)
@@ -186,35 +211,44 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 172. Paragvaj (Paraguay)
 173. Peru (Peru)
 175. PITCAIRN (Pitcairn)
+78. Polinezija (French Polynesia)
 178. Portoriko (Puerto Rico)
 180. REUNION (Réunion)
 183. Ruanda (Rwanda)
+188. S. Martin (Saint Martin)
 189. SAINT PIERRE AND MIQUELON (Saint Pierre & Miquelon)
 191. Samoa (Samoa)
 192. San Marino (San Marino)
 197. Sejšeli (Seychelles)
+198. Siera Leone (Sierra Leone)
 215. Sirija (Syria)
+203. Solomonski otoci (Solomon Islands)
 204. Somalija (Somalia)
 210. Sudan (Sudan)
 211. Surinam (Suriname)
 212. SVALBARD AND JAN MAYEN (Svalbard and Jan Mayen)
 187. Sveta Lucija (Saint Lucia)
+190. Sveti Vincent i Grenadine (Saint Vincent and the Grenadines)
+184. Sveti Barthelemy (Saint Barthélemy)
 186. Sveti Kits i Nevis (Saint Kitts and Nevis)
-78. TAHITI (French Polynesia)
+193. Sveti Tome i Principe (Sao Tome and Principe)
 219. Tajland (Thailand)
+216. Tajvan - Kina (Taiwan)
+220. Timor (Timor-Leste)
 221. Togo (Togo)
 222. TOKELAU (Tokelau)
 223. Tonga (Tonga)
 224. Trinidad i Tobago (Trinidad and Tobago)
 228. TURKS AND CAICOS ISLANDS (Turks and Caicos Islands)
 229. Tuvalu (Tuvalu)
+236. UNITED STATES MINOR OUTLYING ISLANDS (U.S. Minor Outlying Islands)
 234. Urugvaj (Uruguay)
 238. Vanuatu (Vanuatu)
 239. Vatikan (Vatican)
 240. Venecuela (Venezuela)
 241. Vijetnam (Vietnam)
-243. VIRGIN ISLANDS, U.S. (Virgin Islands of the USA)
-244. WALLIS AND FUTUNA (Wallis & Futuna)
+242. VIRGIN ISLANDS, BRITISH (Virgin Islands (UK))
+244. Walis i Futuna (Wallis & Futuna)
 245. WESTERN SAHARA (Western Sahara)
 
 
@@ -222,90 +256,22 @@ SUSPENDED DESTINATIONS - B) MISSING FROM BH POSTA DROP-DOWN (Postcrossing number
 ================================================================================
 2. Alandska ostrva (Åland Islands)
 9. Antarktik (Antarctica)
-10. Antigva i Barbuda (Antigua & Barbuda)
-33. Brunej (Brunei)
-37. Zelenortska Ostrva (Cabo Verde)
-41. Kajmanska ostrva (Cayman Islands)
-50. Kongo (Congo)
-51. Demokratska Republika Kongo (Dem. Rep. of Congo)
-59. Češka (Czechia)
-66. El Salvador (El Salvador)
-70. Svazilend (Eswatini / Swaziland)
-73. Farska ostrva (Faroe Islands)
-89. Gvadalupe (Guadeloupe)
-94. Gvineja Bisau (Guinea-Bissau)
-98. Hong Kong (Hong Kong)
-116. Sjeverna Koreja (Korea (North))
-117. Južna Koreja (Korea (South))
-130. Makao (Macao)
-143. Mikronezija (Micronesia)
-151. Mjanmar (Myanmar)
-164. Sjeverna Makedonija (North Macedonia)
-182. Rusija (Russia)
-184. Sveti Bartolomej (Saint Barthélemy)
-188. Sveti Martin (Saint Martin)
-190. Sveti Vincent i Grenadini (Saint Vincent and the Grenadines)
-193. Sao Tome i Principe (Sao Tome and Principe)
-198. Sijera Leone (Sierra Leone)
-203. Solomonska Ostrva (Solomon Islands)
-206. Južna Georgija (South Georgia and S. Sandwich Islands)
-216. Tajvan (Taiwan)
-220. Istočni Timor (Timor-Leste)
-235. Sjedinjene Američke Države (U.S.A.)
-236. Američka vanjska ostrva (U.S. Minor Outlying Islands)
-242. Britanska Djevičanska Ostrva (Virgin Islands (UK))
 
 
 UNMAPPED BH POSTA NAMES (add an alias in monitor.py)
 ================================================================================
-Amer.Djevičanska Ostrva  [SUSPENDED]
-Antiga i Barbuda  [SUSPENDED]
-Brunei Daruselam  [AVAILABLE]
-Cap-Vert (Zeleni-Rt)  [SUSPENDED]
-Češka Republika  [AVAILABLE]
-ESVATINI (SVAZILEND)  [AVAILABLE]
-Farski otoci  [SUSPENDED]
-Gvadelupe  [SUSPENDED]
-Gvineja Bisao  [SUSPENDED]
-Hong Kong, Kina  [AVAILABLE]
-Južna Džodžija i Sandwich otoci  [SUSPENDED]
-Kajmanski otoci  [SUSPENDED]
-Kongo (Dem.Rep.)  [SUSPENDED]
-Kongo (Rep.)  [SUSPENDED]
-Koreja (Dem.Rep.)  [SUSPENDED]
-Koreja (Rep.)  [AVAILABLE]
-Kurakao  [SUSPENDED]
-Makao, Kina  [SUSPENDED]
-Mianmar  [AVAILABLE]
-MICRONESIA, FEDERATED STATES OF  [SUSPENDED]
-Polinezija  [SUSPENDED]
-Republika Sjeverna Makedonija  [AVAILABLE]
-Ruska Federacija  [AVAILABLE]
-S. Martin  [SUSPENDED]
-SAD Sjedinjene Americke Države  [AVAILABLE]
-Salvador  [AVAILABLE]
-Siera Leone  [SUSPENDED]
-Solomonski otoci  [SUSPENDED]
-Sveti Vincent i Grenadine  [SUSPENDED]
-Sveti Barthelemy  [SUSPENDED]
-Sveti Tome i Principe  [SUSPENDED]
-Tajvan - Kina  [SUSPENDED]
-Timor  [SUSPENDED]
-UNITED STATES MINOR OUTLYING ISLANDS  [AVAILABLE]
-VIRGIN ISLANDS, BRITISH  [SUSPENDED]
-Walis i Futuna  [SUSPENDED]
+None
 
 
 CHECK ERRORS (could not be checked)
 ================================================================================
-1. Afganistan (Afghanistan)
-3. Albanija (Albania)
+None
 
 
 SUMMARY
 ================================================================================
-AVAILABLE: 96
-SUSPENDED A (no price quote): 116
-SUSPENDED B (missing from drop-down): 34
-UNMAPPED: 36
-ERRORS: 2
+AVAILABLE: 107
+SUSPENDED A (no price quote): 139
+SUSPENDED B (missing from drop-down): 2
+UNMAPPED: 0
+ERRORS: 0
