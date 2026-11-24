@@ -7,7 +7,7 @@ Flow:
   2. Click the "Međunarodni promet" tab
   3. Select Dopisnica
   4. For every destination in the "odredišna zemlja" drop-down:
-       select "I stopa: do 20g" and click "Izračunaj"
+       select "I stopa: do 20g" (if present) and click "Izračunaj" (if present)
   5. Write bh_posta_output.txt (no timestamps, so only real changes show up)
 
 Safety: if the page or the drop-down cannot be read, or too many checks fail,
@@ -30,7 +30,6 @@ URL = "https://bhpwebout.posta.ba/KalkulatorCijena_WEB_app/Bos/Default.aspx"
 OUTPUT_FILE = "bh_posta_output.txt"
 
 TAB_SELECTOR = "#ASPxTabControl1_AT1T"          # "Međunarodni promet"
-CALCULATE_SELECTOR = "#btnMeObPiIzracunaj"       # "Izračunaj"
 
 # Tried in order after the tab is opened. First visible match is clicked.
 DOPISNICA_SELECTORS = [
@@ -42,10 +41,20 @@ DOPISNICA_SELECTORS = [
     "#ImageButton8",
 ]
 
+# The Dopisnica form has its own "Izračunaj" button. Tried in order; the
+# first VISIBLE match is used. If none is visible, the script relies on the
+# page calculating automatically when the destination changes.
+CALCULATE_SELECTORS = [
+    'input[id*="MeDo"][id*="Izracun" i]',
+    'input[type="submit"][value*="Izra" i]',
+    'input[type="button"][value*="Izra" i]',
+    'button:has-text("Izračunaj")',
+]
+
 MIN_DESTINATION_OPTIONS = 100     # a select with this many options = country list
 MIN_DESTINATIONS_SANITY = 150     # fewer than this = something is wrong, abort
-MAX_ERRORS_ALLOWED = 5
-RETRIES_PER_COUNTRY = 3
+MAX_ERRORS_ALLOWED = 3
+RETRIES_PER_COUNTRY = 2
 READ_DESTINATION_ATTEMPTS = 4
 RESULT_WAIT_SECONDS = 8
 MAX_RUNTIME_SECONDS = 25 * 60
@@ -86,7 +95,7 @@ MASTER_LINES = [
     "7|Angola|Angola",
     "8|Anguilla|Angvila; Anguila",
     "9|Antarctica|Antarktik; Antarktika",
-    "10|Antigua & Barbuda|Antigva i Barbuda; Antigua and Barbuda",
+    "10|Antigua & Barbuda|Antigva i Barbuda; Antiga i Barbuda; Antigua and Barbuda",
     "11|Argentina|Argentina",
     "12|Armenia|Armenija",
     "13|Aruba|Aruba",
@@ -109,15 +118,15 @@ MASTER_LINES = [
     "30|Botswana|Bocvana",
     "31|Brazil|Brazil",
     "32|British Indian Ocean Territory|Britanska teritorija Indijskog okeana",
-    "33|Brunei|Brunej; Brunei Darussalam",
+    "33|Brunei|Brunej; Brunei Daruselam; Brunei Darussalam",
     "34|Bulgaria|Bugarska",
     "35|Burkina Faso|Burkina Faso",
     "36|Burundi|Burundi",
-    "37|Cabo Verde|Zelenortska Ostrva; Cape Verde",
+    "37|Cabo Verde|Zelenortska Ostrva; Cap-Vert (Zeleni-Rt); Cape Verde",
     "38|Cambodia|Kambodža",
     "39|Cameroon|Kamerun",
     "40|Canada|Kanada",
-    "41|Cayman Islands|Kajmanska ostrva",
+    "41|Cayman Islands|Kajmanska ostrva; Kajmanski otoci",
     "42|Central African Republic|Centralnoafrička Republika",
     "43|Chad|Čad",
     "44|Chile|Čile",
@@ -126,35 +135,35 @@ MASTER_LINES = [
     "47|Cocos Islands|Kokosova ostrva; Cocos (Keeling) Islands",
     "48|Colombia|Kolumbija",
     "49|Comoros|Komori",
-    "50|Congo|Kongo; Congo (Rep.)",
-    "51|Dem. Rep. of Congo|Demokratska Republika Kongo; Congo (Dem. Rep.); Democratic Republic of the Congo",
+    "50|Congo|Kongo; Kongo (Rep.); Congo (Rep.)",
+    "51|Dem. Rep. of Congo|Demokratska Republika Kongo; Kongo (Dem.Rep.); Congo (Dem. Rep.); Democratic Republic of the Congo",
     "52|Cook Islands|Cookova ostrva",
     "53|Costa Rica|Kostarika",
     "54|Côte d'Ivoire|Obala Slonovače; Cote dIvoir; Cote dIvoire; Ivory Coast",
     "55|Croatia|Hrvatska",
     "56|Cuba|Kuba",
-    "57|Curaçao|Curacao",
+    "57|Curaçao|Curacao; Kurakao",
     "58|Cyprus|Kipar",
-    "59|Czechia|Češka; Czech Republic",
+    "59|Czechia|Češka; Češka Republika; Czech Republic",
     "60|Denmark|Danska",
     "61|Djibouti|Džibuti",
     "62|Dominica|Dominika",
     "63|Dominican Republic|Dominikanska Republika",
     "64|Ecuador|Ekvador",
     "65|Egypt|Egipat",
-    "66|El Salvador|El Salvador",
+    "66|El Salvador|Salvador",
     "67|Equatorial Guinea|Ekvatorijalna Gvineja",
     "68|Eritrea|Eritreja",
     "69|Estonia|Estonija",
-    "70|Eswatini / Swaziland|Svazilend; Eswatini; Swaziland",
+    "70|Eswatini / Swaziland|Svazilend; Esvatini (Svazilend); Eswatini; Swaziland",
     "71|Ethiopia|Etiopija",
     "72|Falkland Islands / Malvinas|Falklandska ostrva; Falkland Islands",
-    "73|Faroe Islands|Farska ostrva",
+    "73|Faroe Islands|Farska ostrva; Farski otoci",
     "74|Fiji|Fidži",
     "75|Finland|Finska",
     "76|France|Francuska",
     "77|French Guiana|Francuska Gvajana",
-    "78|French Polynesia|Francuska Polinezija; Tahiti",
+    "78|French Polynesia|Francuska Polinezija; Polinezija; Tahiti",
     "79|French Southern Territories|Francuske južne teritorije",
     "80|Gabon|Gabon",
     "81|Gambia|Gambija",
@@ -165,16 +174,16 @@ MASTER_LINES = [
     "86|Greece|Grčka",
     "87|Greenland|Grenland",
     "88|Grenada|Grenada",
-    "89|Guadeloupe|Gvadalupe",
+    "89|Guadeloupe|Gvadalupe; Gvadelupe",
     "90|Guam|Guam",
     "91|Guatemala|Gvatemala",
     "92|Guernsey|Guernsey",
     "93|Guinea|Gvineja",
-    "94|Guinea-Bissau|Gvineja Bisau",
+    "94|Guinea-Bissau|Gvineja Bisau; Gvineja Bisao",
     "95|Guyana|Gvajana",
     "96|Haiti|Haiti",
     "97|Honduras|Honduras",
-    "98|Hong Kong|Hong Kong",
+    "98|Hong Kong|Hong Kong; Hong Kong, Kina",
     "99|Hungary|Mađarska",
     "100|Iceland|Island",
     "101|India|Indija",
@@ -192,8 +201,8 @@ MASTER_LINES = [
     "113|Kazakhstan|Kazahstan",
     "114|Kenya|Kenija",
     "115|Kiribati|Kiribati",
-    "116|Korea (North)|Sjeverna Koreja; Dem. People's Rep. of Korea; Korea (Dem. People's Rep.)",
-    "117|Korea (South)|Južna Koreja; Korea (Rep.)",
+    "116|Korea (North)|Sjeverna Koreja; Koreja (Dem.Rep.); Dem. People's Rep. of Korea; Korea (Dem. People's Rep.)",
+    "117|Korea (South)|Južna Koreja; Koreja (Rep.); Korea (Rep.)",
     "118|Kosovo|Kosovo",
     "119|Kuwait|Kuvajt",
     "120|Kyrgyzstan|Kirgistan",
@@ -206,7 +215,7 @@ MASTER_LINES = [
     "127|Liechtenstein|Lihtenštajn",
     "128|Lithuania|Litvanija",
     "129|Luxembourg|Luksemburg",
-    "130|Macao|Makao",
+    "130|Macao|Makao; Makao, Kina",
     "131|Madagascar|Madagaskar",
     "132|Malawi|Malavi",
     "133|Malaysia|Malezija",
@@ -219,7 +228,7 @@ MASTER_LINES = [
     "140|Mauritius|Mauricijus",
     "141|Mayotte|Majot",
     "142|Mexico|Meksiko",
-    "143|Micronesia|Mikronezija",
+    "143|Micronesia|Mikronezija; Micronesia, Federated States of",
     "144|Moldova|Moldavija",
     "145|Monaco|Monako",
     "146|Mongolia|Mongolija",
@@ -227,7 +236,7 @@ MASTER_LINES = [
     "148|Montserrat|Montserrat",
     "149|Morocco|Maroko",
     "150|Mozambique|Mozambik",
-    "151|Myanmar|Mjanmar; Burma",
+    "151|Myanmar|Mjanmar; Mianmar; Burma",
     "152|Namibia|Namibija",
     "153|Nauru / Naoero|Nauru",
     "154|Nepal|Nepal",
@@ -240,7 +249,7 @@ MASTER_LINES = [
     "161|Niue|Niue",
     "162|Norfolk Island|Norfolk",
     "163|Northern Mariana Islands|Sjeverna Marijanska ostrva",
-    "164|North Macedonia|Sjeverna Makedonija",
+    "164|North Macedonia|Sjeverna Makedonija; Republika Sjeverna Makedonija",
     "165|Norway|Norveška",
     "166|Oman|Oman",
     "167|Pakistan|Pakistan",
@@ -258,31 +267,31 @@ MASTER_LINES = [
     "179|Qatar|Katar",
     "180|Réunion|Reunion",
     "181|Romania|Rumunija",
-    "182|Russia|Rusija",
+    "182|Russia|Rusija; Ruska Federacija",
     "183|Rwanda|Ruanda",
-    "184|Saint Barthélemy|Sveti Bartolomej",
+    "184|Saint Barthélemy|Sveti Bartolomej; Sveti Barthelemy",
     "185|Saint Helena, Ascension and Tristan da Cunha|Sveta Helena; Saint Helena; Ascension; Tristan da Cunha",
     "186|Saint Kitts and Nevis|Sveti Kits i Nevis",
     "187|Saint Lucia|Sveta Lucija",
-    "188|Saint Martin|Sveti Martin",
+    "188|Saint Martin|Sveti Martin; S. Martin",
     "189|Saint Pierre & Miquelon|Sveti Pierre i Miquelon",
-    "190|Saint Vincent and the Grenadines|Sveti Vincent i Grenadini",
+    "190|Saint Vincent and the Grenadines|Sveti Vincent i Grenadini; Sveti Vincent i Grenadine",
     "191|Samoa|Samoa",
     "192|San Marino|San Marino",
-    "193|Sao Tome and Principe|Sao Tome i Principe",
+    "193|Sao Tome and Principe|Sao Tome i Principe; Sveti Tome i Principe",
     "194|Saudi Arabia|Saudijska Arabija",
     "195|Senegal|Senegal",
     "196|Serbia|Srbija",
     "197|Seychelles|Sejšeli",
-    "198|Sierra Leone|Sijera Leone",
+    "198|Sierra Leone|Sijera Leone; Siera Leone",
     "199|Singapore|Singapur",
     "200|Sint Maarten|Sint Maarten",
     "201|Slovakia|Slovačka",
     "202|Slovenia|Slovenija",
-    "203|Solomon Islands|Solomonska Ostrva",
+    "203|Solomon Islands|Solomonska Ostrva; Solomonski otoci",
     "204|Somalia|Somalija",
     "205|South Africa|Južnoafrička Republika; Južna Afrika",
-    "206|South Georgia and S. Sandwich Islands|Južna Georgija",
+    "206|South Georgia and S. Sandwich Islands|Južna Georgija; Južna Džodžija i Sandwich otoci",
     "207|South Sudan|Južni Sudan",
     "208|Spain|Španija",
     "209|Sri Lanka|Šri Lanka",
@@ -292,11 +301,11 @@ MASTER_LINES = [
     "213|Sweden|Švedska",
     "214|Switzerland|Švicarska",
     "215|Syria|Sirija",
-    "216|Taiwan|Tajvan",
+    "216|Taiwan|Tajvan; Tajvan - Kina",
     "217|Tajikistan|Tadžikistan",
     "218|Tanzania|Tanzanija",
     "219|Thailand|Tajland",
-    "220|Timor-Leste|Istočni Timor; East Timor",
+    "220|Timor-Leste|Istočni Timor; Timor; East Timor",
     "221|Togo|Togo",
     "222|Tokelau|Tokelau",
     "223|Tonga|Tonga",
@@ -311,16 +320,16 @@ MASTER_LINES = [
     "232|United Arab Emirates|Ujedinjeni Arapski Emirati",
     "233|United Kingdom|Ujedinjeno Kraljevstvo; Great Britain; Velika Britanija",
     "234|Uruguay|Urugvaj",
-    "235|U.S.A.|Sjedinjene Američke Države; SAD; USA; United States",
-    "236|U.S. Minor Outlying Islands|Američka vanjska ostrva",
+    "235|U.S.A.|Sjedinjene Američke Države; SAD Sjedinjene Americke Države; SAD; USA; United States",
+    "236|U.S. Minor Outlying Islands|Američka vanjska ostrva; United States Minor Outlying Islands",
     "237|Uzbekistan|Uzbekistan",
     "238|Vanuatu|Vanuatu",
     "239|Vatican|Vatikan; Holy See; Sveta Stolica",
     "240|Venezuela|Venecuela",
     "241|Vietnam|Vijetnam",
-    "242|Virgin Islands (UK)|Britanska Djevičanska Ostrva; British Virgin Islands",
-    "243|Virgin Islands of the USA|Američka Djevičanska Ostrva; Virgin Islands, U.S.; Virgin Islands, US; Virgin Islands",
-    "244|Wallis & Futuna|Wallis i Futuna",
+    "242|Virgin Islands (UK)|Britanska Djevičanska Ostrva; Virgin Islands, British; British Virgin Islands",
+    "243|Virgin Islands of the USA|Američka Djevičanska Ostrva; Amer.Djevičanska Ostrva; Virgin Islands, U.S.; Virgin Islands, US; Virgin Islands",
+    "244|Wallis & Futuna|Wallis i Futuna; Walis i Futuna",
     "245|Western Sahara|Zapadna Sahara",
     "246|Yemen|Jemen",
     "247|Zambia|Zambija",
@@ -415,6 +424,30 @@ READ_OPTIONS_JS = """
 }
 """
 
+# Finds a visible radio button whose label mentions "I stopa".
+FIND_STOPA_RADIO_JS = """
+() => {
+    for (const r of document.querySelectorAll('input[type=radio]')) {
+        if (!r.offsetParent) continue;
+        let label = '';
+        if (r.labels && r.labels.length) label = r.labels[0].innerText;
+        else if (r.parentElement) label = r.parentElement.innerText;
+        if (/I\\s*stopa/i.test(label || '')) {
+            return {id: r.id, checked: r.checked};
+        }
+    }
+    return null;
+}
+"""
+
+# Lists visible form controls (logged once, to help diagnose layout problems).
+LIST_CONTROLS_JS = """
+() => Array.from(document.querySelectorAll('input, button, select')).filter(
+    e => e.offsetParent && e.type !== 'hidden'
+).map(e => (e.tagName + ' type=' + (e.type || '') + ' id=' + e.id +
+            ' value=' + (e.value || '').slice(0, 30))).slice(0, 80)
+"""
+
 
 def wait_idle(page, timeout=10000):
     try:
@@ -437,6 +470,16 @@ def dump_debug(page, label="debug"):
         log(f"  (saved {label}_page.html and {label}_screenshot.png)")
     except Exception as exc:
         log(f"  (could not save debug files: {exc})")
+
+
+def log_visible_controls(page):
+    try:
+        items = page.evaluate(LIST_CONTROLS_JS)
+        log("  Visible controls on the Dopisnica form:")
+        for item in items:
+            log(f"    {item}")
+    except Exception as exc:
+        log(f"  (could not list controls: {exc})")
 
 
 def select_css(info):
@@ -570,6 +613,45 @@ def read_destinations(page, ctl):
 
 
 # ============================================================
+# WEIGHT STEP AND CALCULATE BUTTON
+# ============================================================
+
+
+def ensure_weight(page, ctl):
+    """Select 'I stopa: do 20g' if the form has it (drop-down or radio)."""
+    try:
+        if ctl["weight"]:
+            weight = page.locator(ctl["weight"])
+            if weight.input_value() != ctl["weight_value"]:
+                weight.select_option(value=ctl["weight_value"])
+                time.sleep(0.4)
+                wait_idle(page)
+            return
+
+        radio = page.evaluate(FIND_STOPA_RADIO_JS)
+        if radio and radio.get("id") and not radio.get("checked"):
+            page.locator(f'input[id="{radio["id"]}"]').check(timeout=5000)
+            time.sleep(0.4)
+            wait_idle(page)
+    except Exception:
+        # The Dopisnica form may have no weight step at all; not fatal.
+        pass
+
+
+def find_calculate_button(page):
+    for selector in CALCULATE_SELECTORS:
+        try:
+            loc = page.locator(selector)
+            for i in range(loc.count()):
+                item = loc.nth(i)
+                if item.is_visible():
+                    return item
+        except Exception:
+            continue
+    return None
+
+
+# ============================================================
 # RESULT PARSING
 # ============================================================
 
@@ -611,23 +693,24 @@ def read_result(page):
 
 def check_country(page, ctl, value):
     page.locator(ctl["dest"]).select_option(value=value)
-    time.sleep(0.4)
+    time.sleep(0.5)
     wait_idle(page)
 
-    if ctl["weight"]:
-        weight = page.locator(ctl["weight"])
-        if weight.input_value() != ctl["weight_value"]:
-            weight.select_option(value=ctl["weight_value"])
-            time.sleep(0.4)
-            wait_idle(page)
+    ensure_weight(page, ctl)
 
-    with page.expect_response(
-        lambda r: r.request.method == "POST", timeout=20000
-    ):
-        page.locator(CALCULATE_SELECTOR).click(timeout=10000)
+    button = find_calculate_button(page)
+    if button is not None:
+        try:
+            with page.expect_response(
+                lambda r: r.request.method == "POST", timeout=8000
+            ):
+                button.click(timeout=5000)
+        except Exception:
+            # A click with no network response is fine; read the page anyway.
+            pass
+        wait_idle(page)
+        time.sleep(0.3)
 
-    wait_idle(page)
-    time.sleep(0.3)
     return read_result(page)
 
 
@@ -757,6 +840,7 @@ def main():
             ctl = setup(page)
             log(f"  Destination drop-down: {ctl['dest']}")
             log(f"  Weight drop-down: {ctl['weight']} (value {ctl['weight_value']})")
+            log_visible_controls(page)
 
             raw, ctl = read_destinations(page, ctl)
             log(f"Drop-down entries found: {len(raw)}")
