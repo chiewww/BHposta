@@ -445,4 +445,412 @@ def select_css(info):
     return f'select[name="{info["name"]}"]'
 
 
-def
+def find_controls(page):
+    try:
+        info = page.evaluate(FIND_SELECTS_JS)
+    except Exception:
+        return None
+
+    dest = None
+    for s in info:
+        if s["visible"] and s["n"] >= MIN_DESTINATION_OPTIONS:
+            if dest is None or s["n"] > dest["n"]:
+                dest = s
+    if dest is None:
+        return None
+
+    weight_css = None
+    weight_value = None
+    for s in info:
+        if not s["visible"] or s is dest:
+            continue
+        for value, text in s["opts"]:
+            if re.match(r"\s*I\s*stopa", text, re.I):
+                weight_css = select_css(s)
+                weight_value = value
+                break
+        if weight_css:
+            break
+
+    return {
+        "dest": select_css(dest),
+        "weight": weight_css,
+        "weight_value": weight_value,
+    }
+
+
+def wait_for_controls(page, seconds):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        ctl = find_controls(page)
+        if ctl:
+            return ctl
+        time.sleep(0.5)
+    return None
+
+
+def click_tab(page):
+    try:
+        page.locator(TAB_SELECTOR).click(timeout=10000)
+    except Exception:
+        page.locator("text=Međunarodni promet").first.click(timeout=10000)
+    time.sleep(0.5)
+    wait_idle(page)
+
+
+def click_dopisnica(page):
+    for selector in DOPISNICA_SELECTORS:
+        try:
+            loc = page.locator(selector).first
+            if loc.count() and loc.is_visible():
+                loc.click(timeout=5000)
+                time.sleep(1.0)
+                wait_idle(page, 15000)
+                log(f"  Dopisnica selected using: {selector}")
+                return True
+        except Exception:
+            continue
+    log("  WARNING: Dopisnica button not found; continuing with page default.")
+    return False
+
+
+def setup(page):
+    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+    wait_idle(page)
+    click_tab(page)
+    click_dopisnica(page)
+
+    ctl = wait_for_controls(page, 8)
+    if not ctl:
+        click_tab(page)
+        ctl = wait_for_controls(page, 20)
+    if not ctl:
+        dump_debug(page, "debug_setup")
+        raise RuntimeError("Could not find the destination drop-down.")
+    return ctl
+
+
+def read_destinations(page, ctl):
+    """
+    Read the whole destination list in one atomic page.evaluate call.
+    Retries (re-finding the drop-down each time) if the page is still
+    re-rendering or the list looks incomplete.
+    Returns (destinations, ctl).
+    """
+    best = []
+    for attempt in range(1, READ_DESTINATION_ATTEMPTS + 1):
+        wait_idle(page, 8000)
+        time.sleep(1.0)
+
+        fresh = find_controls(page)
+        if fresh:
+            ctl = fresh
+
+        raw = None
+        try:
+            raw = page.evaluate(READ_OPTIONS_JS, ctl["dest"])
+        except Exception as exc:
+            log(f"  read attempt {attempt} failed: {exc}")
+
+        result = []
+        if raw:
+            for value, text in raw:
+                if is_placeholder(value, text):
+                    continue
+                result.append((value, text))
+
+        log(f"  read attempt {attempt}: {len(result)} destinations")
+
+        if len(result) > len(best):
+            best = result
+        if len(result) >= MIN_DESTINATIONS_SANITY:
+            return result, ctl
+
+    return best, ctl
+
+
+# ============================================================
+# RESULT PARSING
+# ============================================================
+
+
+def parse_result(text):
+    """Return (status, price, delivery). Status: AVAILABLE, SUSPENDED, PENDING."""
+    if SUSPENDED_MESSAGE_NORMALIZED in normalize(text):
+        return "SUSPENDED", None, None
+
+    idx = text.lower().find("ukupna cijena")
+    if idx < 0:
+        return "PENDING", None, None
+
+    segment = text[idx:]
+    price_m = re.search(r"(\d[\d.]*[,.]\d{2})\s*(?:KM|BAM)", segment, re.I)
+    time_m = re.search(
+        r"(\d+\s*[-\u2013\u2014]\s*\d+|\d+)\s*(?:radn\w*\s+)?dan\w*",
+        segment,
+        re.I,
+    )
+    if price_m and time_m:
+        price = price_m.group(1) + "KM"
+        delivery = re.sub(r"\s*[-\u2013\u2014]\s*", "-", time_m.group(1)).strip()
+        return "AVAILABLE", price, delivery
+    return "PENDING", None, None
+
+
+def read_result(page):
+    deadline = time.time() + RESULT_WAIT_SECONDS
+    while True:
+        status, price, delivery = parse_result(body_text(page))
+        if status != "PENDING":
+            return status, price, delivery
+        if time.time() > deadline:
+            # Neither a price + delivery time nor a message: treat as suspended.
+            return "SUSPENDED", None, None
+        time.sleep(0.5)
+
+
+def check_country(page, ctl, value):
+    page.locator(ctl["dest"]).select_option(value=value)
+    time.sleep(0.4)
+    wait_idle(page)
+
+    if ctl["weight"]:
+        weight = page.locator(ctl["weight"])
+        if weight.input_value() != ctl["weight_value"]:
+            weight.select_option(value=ctl["weight_value"])
+            time.sleep(0.4)
+            wait_idle(page)
+
+    with page.expect_response(
+        lambda r: r.request.method == "POST", timeout=20000
+    ):
+        page.locator(CALCULATE_SELECTOR).click(timeout=10000)
+
+    wait_idle(page)
+    time.sleep(0.3)
+    return read_result(page)
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+
+def build_report(results):
+    groups = {}
+    first_index = {}
+    unmapped = []
+
+    for idx, entry in enumerate(results):
+        numbers = lookup_numbers(entry["name"])
+        if not numbers:
+            unmapped.append(entry)
+            continue
+        for n in numbers:
+            groups.setdefault(n, []).append(entry)
+            first_index.setdefault(n, idx)
+
+    available = []
+    suspended_a = []
+    errors = []
+
+    for n in sorted(groups, key=lambda x: first_index[x]):
+        entries = groups[n]
+
+        if n == 185:
+            bad = [
+                e
+                for e in entries
+                if re.search(r"ASCENSION|TRISTAN", e["norm"])
+                and e["status"] != "AVAILABLE"
+            ]
+            if bad:
+                labels = []
+                for e in bad:
+                    if "ASCENSION" in e["norm"] and "TRISTAN" not in e["norm"]:
+                        labels.append("Ascension")
+                    elif "TRISTAN" in e["norm"] and "ASCENSION" not in e["norm"]:
+                        labels.append("Tristan da Cunha")
+                    else:
+                        labels.append(e["name"])
+                verb = "is" if len(labels) == 1 else "are"
+                suspended_a.append(
+                    f"185. {ENGLISH[185]} ({' and '.join(labels)} {verb} suspended)"
+                )
+                continue
+
+        ok = [e for e in entries if e["status"] == "AVAILABLE"]
+        if ok:
+            e = ok[0]
+            available.append(
+                f"{n}. {e['name']} ({ENGLISH[n]}) {e['price']} {e['delivery']} days"
+            )
+        elif any(e["status"] == "ERROR" for e in entries):
+            errors.append(f"{n}. {entries[0]['name']} ({ENGLISH[n]})")
+        else:
+            suspended_a.append(f"{n}. {entries[0]['name']} ({ENGLISH[n]})")
+
+    missing = [
+        f"{n}. {LOCAL[n]} ({ENGLISH[n]})"
+        for n in sorted(ENGLISH)
+        if n not in groups
+    ]
+
+    unmapped_lines = [f"{e['name']}  [{e['status']}]" for e in unmapped]
+
+    def block(title, lines):
+        out = [title, "=" * 80]
+        out.extend(lines if lines else ["None"])
+        out.extend(["", ""])
+        return out
+
+    lines = []
+    lines += block(
+        "AVAILABLE DESTINATIONS (order of BH Posta drop-down)", available
+    )
+    lines += block(
+        "SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)",
+        suspended_a,
+    )
+    lines += block(
+        "SUSPENDED DESTINATIONS - B) MISSING FROM BH POSTA DROP-DOWN "
+        "(Postcrossing number order)",
+        missing,
+    )
+    lines += block(
+        "UNMAPPED BH POSTA NAMES (add an alias in monitor.py)", unmapped_lines
+    )
+    lines += block("CHECK ERRORS (could not be checked)", errors)
+    lines += [
+        "SUMMARY",
+        "=" * 80,
+        f"AVAILABLE: {len(available)}",
+        f"SUSPENDED A (no price quote): {len(suspended_a)}",
+        f"SUSPENDED B (missing from drop-down): {len(missing)}",
+        f"UNMAPPED: {len(unmapped_lines)}",
+        f"ERRORS: {len(errors)}",
+    ]
+
+    return "\n".join(lines) + "\n", len(available), len(errors)
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+
+def main():
+    start = time.time()
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
+        context = browser.new_context(
+            locale="bs-BA", viewport={"width": 1366, "height": 900}
+        )
+        page = context.new_page()
+        page.set_default_timeout(30000)
+
+        try:
+            log("Opening BH Posta calculator...")
+            ctl = setup(page)
+            log(f"  Destination drop-down: {ctl['dest']}")
+            log(f"  Weight drop-down: {ctl['weight']} (value {ctl['weight_value']})")
+
+            raw, ctl = read_destinations(page, ctl)
+            log(f"Drop-down entries found: {len(raw)}")
+
+            destinations = []
+            seen = set()
+            for value, text in raw:
+                key = normalize(text)
+                if key in IGNORED_KEYS:
+                    log(f"  ignoring: {text}")
+                    continue
+                if key in seen:
+                    log(f"  duplicate skipped: {text}")
+                    continue
+                seen.add(key)
+                destinations.append((value, text))
+
+            if len(destinations) < MIN_DESTINATIONS_SANITY:
+                dump_debug(page, "debug_dropdown")
+                raise RuntimeError(
+                    f"Only {len(destinations)} destinations found; expected "
+                    f"at least {MIN_DESTINATIONS_SANITY}."
+                )
+
+            log(f"Checking {len(destinations)} destinations...")
+
+            results = []
+            error_count = 0
+            debug_saved = False
+
+            for i, (value, name) in enumerate(destinations, start=1):
+                if time.time() - start > MAX_RUNTIME_SECONDS:
+                    raise RuntimeError("Maximum runtime reached; output not written.")
+
+                outcome = None
+                for attempt in range(1, RETRIES_PER_COUNTRY + 1):
+                    try:
+                        outcome = check_country(page, ctl, value)
+                        break
+                    except Exception as exc:
+                        log(f"    attempt {attempt} failed for {name}: {exc}")
+                        if not debug_saved:
+                            dump_debug(page, "debug_error")
+                            debug_saved = True
+                        if attempt < RETRIES_PER_COUNTRY:
+                            try:
+                                ctl = setup(page)
+                            except Exception as exc2:
+                                log(f"    re-setup failed: {exc2}")
+
+                if outcome is None:
+                    status, price, delivery = "ERROR", None, None
+                    error_count += 1
+                else:
+                    status, price, delivery = outcome
+
+                results.append(
+                    {
+                        "name": name,
+                        "norm": normalize(name),
+                        "status": status,
+                        "price": price,
+                        "delivery": delivery,
+                    }
+                )
+
+                extra = f" {price} {delivery}" if status == "AVAILABLE" else ""
+                log(f"[{i}/{len(destinations)}] {name}: {status}{extra}")
+
+                if error_count > MAX_ERRORS_ALLOWED:
+                    raise RuntimeError(
+                        f"Too many errors ({error_count}); output not written."
+                    )
+
+        finally:
+            browser.close()
+
+    report, available_count, _ = build_report(results)
+
+    if available_count == 0:
+        raise RuntimeError("No available destinations found; output not written.")
+
+    Path(OUTPUT_FILE).write_text(report, encoding="utf-8")
+    log(f"\nOutput written to {Path(OUTPUT_FILE).resolve()}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        log("\nInterrupted.")
+        sys.exit(1)
+    except Exception as exc:
+        log(f"\nFATAL ERROR: {exc}")
+        sys.exit(1)
+
+# END OF FILE
