@@ -20,7 +20,6 @@ AVAILABLE DESTINATIONS (order of BH Posta drop-down)
 36. Burundi (Burundi) 1,80KM 9-15 days
 43. Cad (Chad) 1,80KM 14-25 days
 44. Cile (Chile) 1,80KM 11-17 days
-47. COCOS (KEELING) ISLANDS (Cocos Islands) 1,80KM 11-17 days
 147. Crna Gora (Montenegro) 1,80KM 6-10 days
 59. Češka Republika (Czechia) 1,80KM 7-10 days
 60. Danska (Denmark) 1,80KM 6-8 days
@@ -104,7 +103,6 @@ AVAILABLE DESTINATIONS (order of BH Posta drop-down)
 230. Uganda (Uganda) 1,80KM 19-29 days
 232. Ujedinjeni Arapski Emirati (United Arab Emirates) 1,80KM 11-18 days
 231. Ukrajina (Ukraine) 1,80KM 9-16 days
-236. UNITED STATES MINOR OUTLYING ISLANDS (U.S. Minor Outlying Islands) 1,80KM 9-16 days
 237. Uzbekistan (Uzbekistan) 1,80KM 13-17 days
 233. Velika Britanija (United Kingdom) 1,80KM 6-8 days
 247. Zambija (Zambia) 1,80KM 16-20 days
@@ -134,6 +132,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 37. Cap-Vert (Zeleni-Rt) (Cabo Verde)
 42. Centralnoafricka Republika (Central African Republic)
 46. CHRISTMAS ISLAND (Christmas Island)
+47. COCOS (KEELING) ISLANDS (Cocos Islands)
 52. COOK ISLANDS (Cook Islands)
 62. Dominika (Dominica)
 63. Dominikanska Republika (Dominican Republic)
@@ -242,6 +241,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 224. Trinidad i Tobago (Trinidad and Tobago)
 228. TURKS AND CAICOS ISLANDS (Turks and Caicos Islands)
 229. Tuvalu (Tuvalu)
+236. UNITED STATES MINOR OUTLYING ISLANDS (U.S. Minor Outlying Islands)
 234. Urugvaj (Uruguay)
 238. Vanuatu (Vanuatu)
 239. Vatikan (Vatican)
@@ -270,8 +270,8 @@ None
 
 SUMMARY
 ================================================================================
-AVAILABLE: 109
-SUSPENDED A (no price quote): 137
+AVAILABLE: 107
+SUSPENDED A (no price quote): 139
 SUSPENDED B (missing from drop-down): 2
 UNMAPPED: 0
 ERRORS: 0
