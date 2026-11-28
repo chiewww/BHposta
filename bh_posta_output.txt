@@ -20,7 +20,6 @@ AVAILABLE DESTINATIONS (order of BH Posta drop-down)
 36. Burundi (Burundi) 1,80KM 9-15 days
 43. Cad (Chad) 1,80KM 14-25 days
 44. Cile (Chile) 1,80KM 11-17 days
-47. COCOS (KEELING) ISLANDS (Cocos Islands) 1,80KM 11-17 days
 147. Crna Gora (Montenegro) 1,80KM 6-10 days
 59. Češka Republika (Czechia) 1,80KM 7-10 days
 60. Danska (Denmark) 1,80KM 6-8 days
@@ -133,6 +132,7 @@ SUSPENDED DESTINATIONS - A) NO PRICE QUOTE (order of BH Posta drop-down)
 37. Cap-Vert (Zeleni-Rt) (Cabo Verde)
 42. Centralnoafricka Republika (Central African Republic)
 46. CHRISTMAS ISLAND (Christmas Island)
+47. COCOS (KEELING) ISLANDS (Cocos Islands)
 52. COOK ISLANDS (Cook Islands)
 62. Dominika (Dominica)
 63. Dominikanska Republika (Dominican Republic)
@@ -270,8 +270,8 @@ None
 
 SUMMARY
 ================================================================================
-AVAILABLE: 108
-SUSPENDED A (no price quote): 138
+AVAILABLE: 107
+SUSPENDED A (no price quote): 139
 SUSPENDED B (missing from drop-down): 2
 UNMAPPED: 0
 ERRORS: 0
